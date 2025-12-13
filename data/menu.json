@@ -1,0 +1,48 @@
+[
+    {
+        "id": "b1",
+        "name": "Classic Burger",
+        "description": "Juicy beef patty with lettuce, tomato, and cheese.",
+        "price": 12.99,
+        "category": "Main",
+        "ingredients": [
+            "Beef",
+            "Lettuce",
+            "Tomato",
+            "Cheese",
+            "Bun"
+        ]
+    },
+    {
+        "id": "b2",
+        "name": "Veggie Burger",
+        "description": "Plant-based patty with avocado and sprouts.",
+        "price": 13.50,
+        "category": "Main",
+        "ingredients": [
+            "Plant Patty",
+            "Avocado",
+            "Sprouts",
+            "Bun"
+        ]
+    },
+    {
+        "id": "s1",
+        "name": "Fries",
+        "description": "Crispy golden french fries.",
+        "price": 4.50,
+        "category": "Side",
+        "ingredients": [
+            "Potato",
+            "Salt"
+        ]
+    },
+    {
+        "id": "d1",
+        "name": "Coke",
+        "description": "Chilled Coca-Cola.",
+        "price": 2.50,
+        "category": "Drink",
+        "ingredients": []
+    }
+]

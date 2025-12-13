@@ -1,0 +1,5 @@
+User → Smart-Waiter Agent
+          ├── Menu Tool
+          ├── Order Tool
+          ├── Payment Tool
+          └── Notification Tool

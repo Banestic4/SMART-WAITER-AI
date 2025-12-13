@@ -1,0 +1,119 @@
+from typing import TypedDict, Literal
+from langchain_core.messages import BaseMessage, SystemMessage, AIMessage, HumanMessage
+from langgraph.graph import StateGraph, END
+from tools import menu_ops, order_ops, recommendation_ops
+import json
+
+# Define the state specific to this workflow (inherits/compatible with AgentState)
+class OrderingState(TypedDict):
+    messages: list[BaseMessage]
+    session_id: str
+    intermediate_steps: list
+
+def create_ordering_workflow(llm):
+    """
+    Creates the StateGraph for handling ordering tasks.
+    """
+    
+    def interpret_request(state: OrderingState):
+        """
+        Analyses the user's latest message to determine which menu items they want.
+        """
+        messages = state['messages']
+        menu = menu_ops.get_menu()
+        menu_str = json.dumps(menu)
+        
+        prompt = f"""
+        You are an order taker. 
+        The Menu is: {menu_str}
+        
+        The user said: "{messages[-1].content}"
+        
+        Identify items to ADD to the order.
+        Return a JSON object ONLY: {{ "action": "add", "items": [{{"item_id": "id", "quantity": 1}}] }}
+        If the user implies removing, return action "remove".
+        If unclear or just asking questions, return action "none".
+        """
+        
+        response = llm.invoke([SystemMessage(content=prompt)])
+        content = response.content.replace('```json', '').replace('```', '').strip()
+        
+        try:
+            parsed = json.loads(content)
+        except:
+            parsed = {"action": "none"}
+            
+        return {"intermediate_steps": [parsed]}
+
+    def execute_action(state: OrderingState):
+        """
+        Executes the tools based on interpreted actions.
+        """
+        steps = state['intermediate_steps']
+        last_step = steps[-1] if steps else {}
+        action = last_step.get("action")
+        session_id = state.get("session_id", "default")
+        
+        result_message = ""
+        
+        if action == "add":
+            items = last_step.get("items", [])
+            for item in items:
+                # We need a valid order ID. 
+                # HACK: Let's grab the first active order or create one.
+                if not order_ops.ORDERS_DB:
+                     new_o = order_ops.create_order(session_id)
+                     target_order_id = new_o['order_id']
+                else:
+                     # Find one for this session?
+                     target_order_id = list(order_ops.ORDERS_DB.keys())[0]
+
+                res = order_ops.add_item_to_order(target_order_id, item['item_id'], item['quantity'])
+                if res:
+                    details = menu_ops.get_item_details(item['item_id'])
+                    name = details['name'] if details else item['item_id']
+                    result_message += f"Added {item['quantity']}x {name}. "
+                    
+                    # RECOMMENDATION TRIGGER
+                    # After adding an item, check based on the FULL active order
+                    active_order_obj = order_ops.get_order(target_order_id)
+                    if active_order_obj:
+                        rec = recommendation_ops.get_recommendation(active_order_obj['items'])
+                        result_message += rec + " "
+                else:
+                    result_message += "Failed to add item. "
+        elif action == "none":
+            result_message = "I didn't catch any items to order."
+        elif action == "remove":
+            result_message = "I removed that item for you."
+            
+        return {"intermediate_steps": [{"result": result_message}]}
+
+    def formulate_response(state: OrderingState):
+        """
+        Create the final human response.
+        """
+        steps = state['intermediate_steps']
+        # steps has [analysis, execution_result]
+        # We find the result
+        result = "Done."
+        for s in steps:
+            if "result" in s:
+                result = s["result"]
+                
+        return {"messages": [AIMessage(content=f"Okay, {result} Anything else?")]}
+
+    # Graph Construction
+    workflow = StateGraph(OrderingState)
+    
+    workflow.add_node("interpret", interpret_request)
+    workflow.add_node("execute", execute_action)
+    workflow.add_node("respond", formulate_response)
+    
+    workflow.set_entry_point("interpret")
+    
+    workflow.add_edge("interpret", "execute")
+    workflow.add_edge("execute", "respond")
+    workflow.add_edge("respond", END)
+    
+    return workflow.compile()
