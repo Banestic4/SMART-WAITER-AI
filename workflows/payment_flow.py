@@ -68,7 +68,7 @@ def create_payment_workflow(llm):
             # Auto-Send to Kitchen
             kitchen_ops.send_ticket(state['order_id'])
                 
-            return {"status": "paid", "messages": [AIMessage(content=f"Payment of ${state['amount']:.2f} successful! Your order has been sent to the kitchen.")]}
+            return {"status": "paid", "messages": [AIMessage(content=f"Payment of ₦{state['amount']:,.2f} successful! Your order has been sent to the kitchen.")]}
         else:
             return {"status": "failed", "messages": [AIMessage(content="Payment failed. Please try again.")]}
 

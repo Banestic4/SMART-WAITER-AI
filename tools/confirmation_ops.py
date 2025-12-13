@@ -9,4 +9,4 @@ def format_confirmation_request(order_id: str, amount: float) -> str:
     """
     Generate the text to ask the user for confirmation.
     """
-    return f"Please confirm payment of ${amount:.2f} for Order {order_id}. (yes/no)"
+    return f"Please confirm payment of ₦{amount:,.2f} for Order {order_id}. (yes/no)"

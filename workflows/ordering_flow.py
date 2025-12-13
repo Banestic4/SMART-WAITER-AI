@@ -61,12 +61,25 @@ def create_ordering_workflow(llm):
             for item in items:
                 # We need a valid order ID. 
                 # HACK: Let's grab the first active order or create one.
-                if not order_ops.ORDERS_DB:
-                     new_o = order_ops.create_order(session_id)
-                     target_order_id = new_o['order_id']
+                # For MVP with SQLite, we need to find the active order for this session/table.
+                # In a real app, we'd use session_store to find the active order_id.
+                # Here, we'll try to get the latest draft order for the ID or create new.
+                
+                # Simplified Logic:
+                # 1. We don't have a reliable way to "find active order" without session store mapping table_id -> active_order_id.
+                # 2. But we can assume session_id == table_id for this demo.
+                # 3. Let's query DB for last DRAFT order for this table.
+                
+                target_order_id = None
+                # This raw query logic should be in order_ops, but adding here to fix verify script fast.
+                from storage import db
+                rows = db.execute_query("SELECT order_id FROM orders WHERE table_id = ? AND status = 'DRAFT' ORDER BY created_at DESC LIMIT 1", (session_id,))
+                
+                if rows:
+                    target_order_id = rows[0]['order_id']
                 else:
-                     # Find one for this session?
-                     target_order_id = list(order_ops.ORDERS_DB.keys())[0]
+                    new_o = order_ops.create_order(session_id)
+                    target_order_id = new_o['order_id']
 
                 res = order_ops.add_item_to_order(target_order_id, item['item_id'], item['quantity'])
                 if res:
