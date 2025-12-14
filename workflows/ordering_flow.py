@@ -87,18 +87,38 @@ def create_ordering_workflow(llm):
                     name = details['name'] if details else item['item_id']
                     result_message += f"Added {item['quantity']}x {name}. "
                     
-                    # RECOMMENDATION TRIGGER
-                    # After adding an item, check based on the FULL active order
+                    # Fetch active order for context
                     active_order_obj = order_ops.get_order(target_order_id)
+                    
                     if active_order_obj:
-                        rec = recommendation_ops.get_recommendation(active_order_obj['items'])
-                        result_message += rec + " "
+                        # 1. Protein Upsell Check (New Requirement)
+                        # Check if added item is a main dish (Rice, Swallow, Yam, Noodles)
+                        # Since we don't have category in 'item' input here, we fetch it
+                        added_item_details = menu_ops.get_item_details(item['item_id'])
+                        category = added_item_details.get('category', '') if added_item_details else ""
+                        
+                        target_cats = ['Rice', 'Swallow', 'Yam', 'Noodles', 'Category A', 'Category B', 'Category C', 'Category F']
+                        if any(c.lower() in category.lower() for c in target_cats):
+                            # List Meat/Fish options
+                            protein_menu = menu_ops.get_menu()
+                            # Filter for Meat (D) and Fish (E)
+                            proteins = [p for p in protein_menu if p['category'] in ['Meat', 'Fish']]
+                            
+                            upsell_msg = "\nWould you like to add any meat or fish? Here are the options:\n"
+                            for idx, p in enumerate(proteins, 1):
+                                upsell_msg += f"{idx}. {p['name']} (₦{p['price']:,.2f})\n"
+                                
+                            result_message += upsell_msg
+                        else:
+                            # 2. Standard Recommendation (Upsell Drinks/Sides) if not asking for protein
+                            rec = recommendation_ops.get_recommendation(active_order_obj['items'])
+                            result_message += rec + " "
                 else:
                     result_message += "Failed to add item. "
         elif action == "none":
-            result_message = "I didn't catch any items to order."
+            result_message = "I didn't catch any items to order, please state clearly your order."
         elif action == "remove":
-            result_message = "I removed that item for you."
+            result_message = "I have removed that item for you."
             
         return {"intermediate_steps": [{"result": result_message}]}
 

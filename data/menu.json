@@ -1,48 +1,353 @@
 [
     {
-        "id": "b1",
-        "name": "Classic Burger",
-        "description": "Juicy beef patty with lettuce, tomato, and cheese.",
-        "price": 5000,
-        "category": "Main",
-        "ingredients": [
-            "Beef",
-            "Lettuce",
-            "Tomato",
-            "Cheese",
-            "Bun"
-        ]
+        "id": "rice_white",
+        "name": "White Rice",
+        "description": null,
+        "price": 500.0,
+        "category": "Rice",
+        "available": true,
+        "ingredients": []
     },
     {
-        "id": "b2",
-        "name": "Veggie Burger",
-        "description": "Plant-based patty with avocado and sprouts.",
-        "price": 5500,
-        "category": "Main",
-        "ingredients": [
-            "Plant Patty",
-            "Avocado",
-            "Sprouts",
-            "Bun"
-        ]
+        "id": "rice_jollof",
+        "name": "Jollof Rice",
+        "description": null,
+        "price": 500.0,
+        "category": "Rice",
+        "available": true,
+        "ingredients": []
     },
     {
-        "id": "s1",
-        "name": "Fries",
-        "description": "Crispy golden french fries.",
-        "price": 2000,
-        "category": "Side",
-        "ingredients": [
-            "Potato",
-            "Salt"
-        ]
+        "id": "rice_fried",
+        "name": "Fried Rice",
+        "description": null,
+        "price": 500.0,
+        "category": "Rice",
+        "available": true,
+        "ingredients": []
     },
     {
-        "id": "d1",
-        "name": "Coke",
-        "description": "Chilled Coca-Cola.",
-        "price": 1000,
-        "category": "Drink",
+        "id": "rice_beans",
+        "name": "Rice with Beans",
+        "description": null,
+        "price": 800.0,
+        "category": "Rice",
+        "available": true,
+        "ingredients": []
+    },
+    {
+        "id": "swallow_semovita",
+        "name": "Semovita",
+        "description": null,
+        "price": 500.0,
+        "category": "Swallow",
+        "available": true,
+        "ingredients": []
+    },
+    {
+        "id": "swallow_fufu_akpu",
+        "name": "Fufu / Akpu",
+        "description": null,
+        "price": 500.0,
+        "category": "Swallow",
+        "available": true,
+        "ingredients": []
+    },
+    {
+        "id": "swallow_amala",
+        "name": "Amala",
+        "description": null,
+        "price": 500.0,
+        "category": "Swallow",
+        "available": true,
+        "ingredients": []
+    },
+    {
+        "id": "swallow_pounded_yam",
+        "name": "Pounded Yam",
+        "description": null,
+        "price": 500.0,
+        "category": "Swallow",
+        "available": true,
+        "ingredients": []
+    },
+    {
+        "id": "yam_golden",
+        "name": "Golden Yam",
+        "description": null,
+        "price": 1000.0,
+        "category": "Yam",
+        "available": true,
+        "ingredients": []
+    },
+    {
+        "id": "yam_egg",
+        "name": "Egg",
+        "description": null,
+        "price": 300.0,
+        "category": "Yam",
+        "available": true,
+        "ingredients": []
+    },
+    {
+        "id": "yam_liver_sauce",
+        "name": "Liver Sauce",
+        "description": null,
+        "price": 300.0,
+        "category": "Yam",
+        "available": true,
+        "ingredients": []
+    },
+    {
+        "id": "yam_potato_chips",
+        "name": "Potato Chips",
+        "description": null,
+        "price": 700.0,
+        "category": "Yam",
+        "available": true,
+        "ingredients": []
+    },
+    {
+        "id": "yam_plantain_chips",
+        "name": "Plantain Chips",
+        "description": null,
+        "price": 200.0,
+        "category": "Yam",
+        "available": true,
+        "ingredients": []
+    },
+    {
+        "id": "meat_beef",
+        "name": "Beef",
+        "description": null,
+        "price": 200.0,
+        "category": "Meat",
+        "available": true,
+        "ingredients": []
+    },
+    {
+        "id": "meat_goat",
+        "name": "Goat Meat",
+        "description": null,
+        "price": 400.0,
+        "category": "Meat",
+        "available": true,
+        "ingredients": []
+    },
+    {
+        "id": "meat_chicken",
+        "name": "Chicken",
+        "description": "Start price",
+        "price": 2000.0,
+        "category": "Meat",
+        "available": true,
+        "ingredients": []
+    },
+    {
+        "id": "fish_small",
+        "name": "Fish (Small)",
+        "description": null,
+        "price": 300.0,
+        "category": "Fish",
+        "available": true,
+        "ingredients": []
+    },
+    {
+        "id": "fish_big",
+        "name": "Fish (Big)",
+        "description": null,
+        "price": 500.0,
+        "category": "Fish",
+        "available": true,
+        "ingredients": []
+    },
+    {
+        "id": "fish_mackerel",
+        "name": "Mackerel",
+        "description": null,
+        "price": 1000.0,
+        "category": "Fish",
+        "available": true,
+        "ingredients": []
+    },
+    {
+        "id": "fish_peppersoup",
+        "name": "Pepper Soup",
+        "description": "Start price",
+        "price": 1000.0,
+        "category": "Fish",
+        "available": true,
+        "ingredients": []
+    },
+    {
+        "id": "noodles_spaghetti",
+        "name": "Spaghetti",
+        "description": null,
+        "price": 800.0,
+        "category": "Noodles",
+        "available": true,
+        "ingredients": []
+    },
+    {
+        "id": "noodles_indomie",
+        "name": "Indomie",
+        "description": null,
+        "price": 600.0,
+        "category": "Noodles",
+        "available": true,
+        "ingredients": []
+    },
+    {
+        "id": "snacks_cakes",
+        "name": "Cakes",
+        "description": "Depends on specs",
+        "price": 0.0,
+        "category": "Cakes & Snacks",
+        "available": true,
+        "ingredients": []
+    },
+    {
+        "id": "snacks_egg_roll",
+        "name": "Egg Roll",
+        "description": null,
+        "price": 500.0,
+        "category": "Cakes & Snacks",
+        "available": true,
+        "ingredients": []
+    },
+    {
+        "id": "snacks_burger_regular",
+        "name": "Burger (Regular)",
+        "description": null,
+        "price": 1700.0,
+        "category": "Cakes & Snacks",
+        "available": true,
+        "ingredients": []
+    },
+    {
+        "id": "snacks_burger_large",
+        "name": "Burger (Large)",
+        "description": null,
+        "price": 2500.0,
+        "category": "Cakes & Snacks",
+        "available": true,
+        "ingredients": []
+    },
+    {
+        "id": "snacks_meat_pie",
+        "name": "Meat Pie",
+        "description": null,
+        "price": 700.0,
+        "category": "Cakes & Snacks",
+        "available": true,
+        "ingredients": []
+    },
+    {
+        "id": "snacks_fish_pie",
+        "name": "Fish Pie",
+        "description": null,
+        "price": 700.0,
+        "category": "Cakes & Snacks",
+        "available": true,
+        "ingredients": []
+    },
+    {
+        "id": "snacks_doughnut",
+        "name": "Doughnut",
+        "description": null,
+        "price": 300.0,
+        "category": "Cakes & Snacks",
+        "available": true,
+        "ingredients": []
+    },
+    {
+        "id": "snacks_cupcake",
+        "name": "Cupcake",
+        "description": null,
+        "price": 400.0,
+        "category": "Cakes & Snacks",
+        "available": true,
+        "ingredients": []
+    },
+    {
+        "id": "snacks_shawarma",
+        "name": "Shawarma",
+        "description": "Depends on specs",
+        "price": 0.0,
+        "category": "Cakes & Snacks",
+        "available": true,
+        "ingredients": []
+    },
+    {
+        "id": "drinks_zobo_small",
+        "name": "Zobo (Small)",
+        "description": null,
+        "price": 400.0,
+        "category": "Drinks",
+        "available": true,
+        "ingredients": []
+    },
+    {
+        "id": "drinks_zobo_big",
+        "name": "Zobo (Big)",
+        "description": null,
+        "price": 800.0,
+        "category": "Drinks",
+        "available": true,
+        "ingredients": []
+    },
+    {
+        "id": "drinks_water",
+        "name": "Bottle Water",
+        "description": null,
+        "price": 200.0,
+        "category": "Drinks",
+        "available": true,
+        "ingredients": []
+    },
+    {
+        "id": "drinks_coke_small",
+        "name": "Coke (Small)",
+        "description": null,
+        "price": 300.0,
+        "category": "Drinks",
+        "available": true,
+        "ingredients": []
+    },
+    {
+        "id": "drinks_coke_big",
+        "name": "Coke (Big)",
+        "description": null,
+        "price": 400.0,
+        "category": "Drinks",
+        "available": true,
+        "ingredients": []
+    },
+    {
+        "id": "tea_small",
+        "name": "Small Tea Jug",
+        "description": null,
+        "price": 700.0,
+        "category": "Tea",
+        "available": true,
+        "ingredients": []
+    },
+    {
+        "id": "tea_medium",
+        "name": "Medium Tea Jug",
+        "description": null,
+        "price": 1200.0,
+        "category": "Tea",
+        "available": true,
+        "ingredients": []
+    },
+    {
+        "id": "tea_large",
+        "name": "Large Tea Jug",
+        "description": null,
+        "price": 2000.0,
+        "category": "Tea",
+        "available": true,
         "ingredients": []
     }
 ]
