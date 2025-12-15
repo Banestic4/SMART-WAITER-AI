@@ -9,6 +9,9 @@ class PaymentState(TypedDict):
     order_id: str
     amount: float
     status: str
+    account_name: str
+    transfer_amount: str
+    disposition: str
 
 def create_payment_workflow(llm):
     
@@ -16,7 +19,8 @@ def create_payment_workflow(llm):
     def analyze_payment_state(state: PaymentState):
         """
         Determine flow based on user's last message.
-        Statuses: init -> ask_method -> processing_transfer -> paid -> ask_disposition -> complete
+        Determine flow based on user's last message.
+        Statuses: init -> ask_method -> processing_transfer -> collecting_transfer_details -> verifying_transfer -> paid_success -> ask_disposition -> complete
         """
         messages = state.get('messages', [])
         current_status = state.get('status', 'init')
@@ -37,21 +41,24 @@ def create_payment_workflow(llm):
             else:
                  return {"status": "ask_method"} 
                  
-        # 2. Transfer Confirmation & HITL
+        # 2. Transfer: Payment Confirmation -> Collection
         if current_status == "processing_transfer":
             if "paid" in last_msg or "done" in last_msg or "proceed" in last_msg:
-                return {"status": "verifying_transfer"}
-        
-        # 3. HITL Verification Check
+                return {"status": "collecting_transfer_details"}
+            elif "cancel" in last_msg:
+                 return {"status": "ask_method"}
+
+        # 3. Transfer: Collection -> Verification
+        if current_status == "collecting_transfer_details":
+            # Heuristic: assume user provided "Name, Amount" or just text.
+            # parsing logic:
+            # We save the entire message as account info for now, or split.
+            # Simple assumption: User sends "Name Amount" or "Name, Amount"
+            return {"status": "verifying_transfer", "account_name": last_msg, "transfer_amount": "CHECK"}
+
+        # 4. HITL Verification Check
         if current_status == "verifying_transfer":
-            # Real HITL check
-            # For now, we simulate the "Wait" message.
-            # If user says "verify" or "verified" (Simulating Admin), we proceed.
-            # Or if strict simulation, we just toggle it automatically after a message?
-            # User requirement: "wait for human... before asking for next action".
-            # The Agent should say "Waiting for verification..." and effectively Pause.
-            # But in this loop, unless we have an external signal, we need a trigger.
-            # Let's assume the user (admin) or the user themselves waiting triggers a check.
+            # HITL check
             if "verified" in last_msg or "confirmed" in last_msg:
                  return {"status": "paid_success"}
             else:
@@ -60,10 +67,26 @@ def create_payment_workflow(llm):
 
         # 4. Post-Payment Disposition (Eat in / Takeaway)
         if current_status == "ask_disposition":
+            msg_content = ""
+            disposition = "Eat In" # default
+            
             if "take" in last_msg or "go" in last_msg:
-                return {"status": "complete", "messages": [AIMessage(content="Okay, we will package it for takeaway. Please wait a moment.")]}
+                disposition = "Takeaway"
+                msg_content = "Okay, we will package it for takeaway. Please wait a moment."
+            elif "pickup" in last_msg:
+                disposition = "Pickup"
+                msg_content = "Okay, your order will be ready for pickup shortly."
+            elif "delivery" in last_msg or "deliver" in last_msg:
+                disposition = "Delivery"
+                msg_content = "Okay, we will arrange for delivery to your location."
             else:
-                 return {"status": "complete", "messages": [AIMessage(content="Great, please have a seat. Your food will be served shortly.")]}
+                 msg_content = "Great, please have a seat. Your food will be served shortly."
+                 disposition = "Eat In"
+            
+            # Send ticket to kitchen NOW, with the correct disposition
+            kitchen_ops.send_ticket(state['order_id'], notes=disposition)
+                 
+            return {"status": "complete", "disposition": disposition, "messages": [AIMessage(content=msg_content)]}
                  
         return {"status": "init"} # Default fall-through for start
 
@@ -109,28 +132,42 @@ def create_payment_workflow(llm):
             msg = "Please proceed with the transfer to:\nBank: First Bank\nAcct: 3123456789\nName: Evolution Restaurant\n\nWhen done, please say 'Done' or 'Paid'."
             return {"messages": [AIMessage(content=msg)], "status": "processing_transfer"}
             
+        elif status == "collecting_transfer_details":
+            msg = "Thank you. Please provide the Account Name and Amount sent (e.g., 'John Doe 5000')."
+            return {"messages": [AIMessage(content=msg)], "status": "collecting_transfer_details"}
+
         elif status == "verifying_transfer":
             # HITL Simulation
-            # If we just entered this state, we tell user to wait.
-            # If we are already here (looping), we verify.
-            # For simplicity, we just say waiting until logic flips status (via admin input simulation).
-            msg = "Payment initiated. Waiting for verification... (Admin: say 'verified' to confirm)"
+            user_details = state.get('account_name', 'Unknown')
+            msg = f"Payment initiated. Details: {user_details}\nWaiting for verification... (Admin: say 'verified' to confirm)"
             return {"messages": [AIMessage(content=msg)], "status": "verifying_transfer"}
             
         elif status == "processing_card":
             msg = "I've alerted the kitchen/staff to bring the POS machine to you."
-            kitchen_ops.send_ticket(state['order_id']) # Notify kitchen
+            # We delay sending ticket here until finalize? No, usually POS comes first.
+            # But ticket handles "Preparation".
+            # Let's send a preliminary ticket or wait for success? 
+            # Current flow: send_ticket happens here.
+            # Logic Update: finalize handles the FINAL ticket with disposition. 
+            # So maybe we don't send here? Or we update it later?
+            # Kitchen ops doesn't support update yet.
+            # Let's rely on finalize_payment to send the ticket so we capture disposition.
+            # kitchen_ops.send_ticket(state['order_id']) REMOVED
             return {"status": "paid_success", "messages": [AIMessage(content=msg)]}
             
         elif status == "processing_cash":
              msg = "A waiter will be with you shortly to collect the cash."
-             kitchen_ops.send_ticket(state['order_id'])
+             # kitchen_ops.send_ticket(state['order_id']) REMOVED
              return {"status": "paid_success", "messages": [AIMessage(content=msg)]}
              
         return {}
 
     def finalize_payment(state: PaymentState):
         """Mark as paid and ask disposition."""
+        # Note: finalize sets status to 'ask_disposition', so the NEXT user message 
+        # is processed by 'analyze' which sees 'ask_disposition'.
+        # But 'finalize' is called automatically after 'process' (if paid_success).
+        
         if state.get('status') != "paid_success":
             return {}
             
@@ -138,10 +175,10 @@ def create_payment_workflow(llm):
         from storage import db
         db.execute_update("UPDATE orders SET status = 'PAID' WHERE order_id = ?", (state['order_id'],))
         
-        # Send ticket if not sent (for transfer flow)
-        kitchen_ops.send_ticket(state['order_id'])
+        # Send ticket logic moved to 'analyze' (after user confirms disposition)
+        # kitchen_ops.send_ticket(state['order_id'], notes=disposition)
         
-        return {"status": "ask_disposition", "messages": [AIMessage(content="Payment confirmed! Thank you. Will you be eating here or taking it away?")]}
+        return {"status": "ask_disposition", "messages": [AIMessage(content="Payment confirmed! Thank you. Will you be eating here, taking it away, picking it up, or do you want delivery?")]}
 
     workflow = StateGraph(PaymentState)
     
@@ -161,6 +198,7 @@ def create_payment_workflow(llm):
             # Actually, "ask_method" returns from analyze implies we just asked it. 
             # Wait, analyze is called AFTER user input.
             "processing_transfer": "process",
+            "collecting_transfer_details": "process",
             "processing_card": "process",
             "processing_cash": "process",
             "verifying_transfer": "process",

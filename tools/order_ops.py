@@ -13,6 +13,9 @@ class OrderItem(BaseModel):
 class Order(BaseModel):
     order_id: str
     table_id: str
+    order_id: str
+    table_id: str
+    table_number: Optional[str] = None
     items: List[OrderItem] = []
     status: str = "DRAFT" 
     created_at: str = ""
@@ -20,17 +23,17 @@ class Order(BaseModel):
 
 # Replaces ORDERS_DB = {}
 
-def create_order(table_id: str) -> Dict:
+def create_order(table_id: str, table_number: str = None) -> Dict:
     """Create a new empty order in SQLite."""
     order_id = str(uuid.uuid4())[:8]
     created_at = datetime.now().isoformat()
     
     db.execute_update(
-        "INSERT INTO orders (order_id, table_id, status, total_amount, created_at) VALUES (?, ?, ?, ?, ?)",
-        (order_id, table_id, "DRAFT", 0.0, created_at)
+        "INSERT INTO orders (order_id, table_id, status, total_amount, created_at, table_number) VALUES (?, ?, ?, ?, ?, ?)",
+        (order_id, table_id, "DRAFT", 0.0, created_at, table_number)
     )
     
-    return Order(order_id=order_id, table_id=table_id, created_at=created_at).model_dump()
+    return Order(order_id=order_id, table_id=table_id, created_at=created_at, table_number=table_number).model_dump()
 
 def get_order(order_id: str) -> Optional[Order]:
     """Retrieve an order by ID (Internal Use: returns Pydantic model or Dict)."""

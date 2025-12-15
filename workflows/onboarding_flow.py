@@ -8,6 +8,8 @@ class OnboardingState(TypedDict):
     session_id: str
     language: str | None
     interaction_mode: str | None
+    table_number: str | None
+    step: str # 'ask_lang', 'ask_mode', 'ask_table', 'complete'
     step: str # 'ask_lang', 'ask_mode', 'complete'
 
 def create_onboarding_workflow(llm):
@@ -18,6 +20,8 @@ def create_onboarding_workflow(llm):
             return {"step": "ask_lang"}
         elif not state.get("interaction_mode"):
             return {"step": "ask_mode"}
+        elif not state.get("table_number"):
+             return {"step": "ask_table"}
         else:
             return {"step": "complete"}
 
@@ -90,11 +94,59 @@ def create_onboarding_workflow(llm):
             
         return {"messages": [AIMessage(content=msg)]}
 
+    def ask_table(state: OnboardingState):
+        """Ask for table number (1-15) or None."""
+        msgs = state.get("messages", [])
+        lang = state.get("language", "English")
+        
+        # Responses map
+        responses = {
+            "English": "Great! Finally, could you please tell me your table number (1-15)? If you are not seated, just say 'None'.",
+            "Hausa": "Yauwa! A ƙarshe, don Allah faɗa min lambar tebur ɗin ku (1-15)? Idan ba ku zauna ba, sai ku ce 'Babu'.",
+            "Yoruba": "O da! Lakotan, jọwọ sọ nọmba tabili rẹ fun mi (1-15)? Ti o ko ba joko, sọ 'Ko si'.",
+            "Igbo": "Ọ dị mma! N'ikpeazụ, biko gwa m nọmba tebụl gị (1-15)? Ọ bụrụ na ị nọghị ọdụ, sọ sị 'Ọ dịghị'.",
+            "French": "Super ! Enfin, pourriez-vous me dire votre numéro de table (1-15) ? Si vous n'êtes pas assis, dites simplement 'Aucun'."
+        }
+        
+        prompt_msg = responses.get(lang, responses["English"])
+        
+        if msgs and isinstance(msgs[-1], HumanMessage):
+            content = msgs[-1].content.lower()
+            
+            # Check for "none" variations
+            if any(k in content for k in ["none", "babu", "ko si", "ọ dịghị", "aucun", "no", "not seated"]):
+                # Success
+                final_msg = "Thank you! You are all set." # Simplified final msg, re-used in welcome
+                return {"table_number": "None", "messages": [AIMessage(content=final_msg)]}
+            
+            # Extract number
+            import re
+            numbers = re.findall(r'\d+', content)
+            if numbers:
+                num = int(numbers[0])
+                if 1 <= num <= 15:
+                    final_msg = f"Table {num} noted. Thank you!" 
+                    return {"table_number": str(num), "messages": [AIMessage(content=final_msg)]}
+                else:
+                    # Invalid number
+                    err_responses = {
+                        "English": "Please enter a valid table number between 1 and 15.",
+                         "Hausa": "Don Allah shigar da lambar tebur mai inganci tsakanin 1 da 15.",
+                         "French": "Veuillez entrer un numéro de table valide entre 1 et 15."
+                    }
+                    err_msg = err_responses.get(lang, err_responses["English"])
+                    return {"messages": [AIMessage(content=err_msg)]}
+            
+            # If explicit input but not understood, just repeat prompt? or assume it's the prompt turn.
+            
+        return {"messages": [AIMessage(content=prompt_msg)]}
+
     workflow = StateGraph(OnboardingState)
     
     workflow.add_node("decider", determine_step)
     workflow.add_node("ask_lang", ask_language)
     workflow.add_node("ask_mode", ask_mode)
+    workflow.add_node("ask_table", ask_table)
     
     workflow.set_entry_point("decider")
     
@@ -104,6 +156,7 @@ def create_onboarding_workflow(llm):
         {
             "ask_lang": "ask_lang",
             "ask_mode": "ask_mode",
+            "ask_table": "ask_table",
             "complete": END
         }
     )
@@ -121,6 +174,14 @@ def create_onboarding_workflow(llm):
             "stop": END
         }
     )
-    workflow.add_edge("ask_mode", END)
+    workflow.add_conditional_edges(
+        "ask_mode",
+        lambda x: "continue" if x.get("interaction_mode") else "stop",
+         {
+            "continue": "decider",
+            "stop": END
+        }
+    )
+    workflow.add_edge("ask_table", END)
     
     return workflow.compile()

@@ -1,0 +1,116 @@
+SMART WAITER AGENT - FULL TECHNICAL DOCUMENTATION
+===================================================
+
+1. SYSTEM OVERVIEW
+------------------
+The Smart Waiter is an advanced, conversational AI agent simulated to perform the duties of a restaurant waiter. It is designed to be "Serverless-Ready" (deployable on Vercel) and stateful, remembering user context across a session.
+
+Key Capabilities:
+- Multilingual Interaction (English, Hausa, Yoruba, Igbo, French).
+- Dynamic Menu Management with complex pricing/sizing.
+- End-to-End Ordering flow (Draft -> Confirmed -> Kitchen).
+- Secure Payment Processing (Calculations, HITL Verification).
+- Resilience (Auto-rotation of API Keys).
+
+2. CORE ARCHITECTURE
+--------------------
+The system is built on **LangGraph**, a framework for building stateful, multi-actor applications with LLMs. Unlike a simple chatbot loop, this system uses a **Graph Architecture**:
+
+[ State Graph ]
+   |
+   +-- Nodes: Distinct functions (Router, Onboarding, Ordering, Payment).
+   +-- Edges: Logic paths based on state (e.g., if "intent=ORDER" -> go to Ordering).
+   +-- Persistence: Checkpointers (MemorySaver) save the "State" (conversation history) so the server can restart without losing context.
+
+3. COMPONENT BREAKDOWN
+----------------------
+
+3.1. CONFIGURATION (config.py)
+   - Purpose: Centralizes environment variables and settings.
+   - Key Feature: **Smart Key Parsing**. It reads `GROQ_API_KEYS` (comma-separated factory) or `GROQ_API_KEY` (singular) and normalizes them into a list for rotation.
+   - Integrations: Groq (LLM), Hugging Face (Translation).
+
+3.2. THE BRAIN: AGENTS (agents/smart_waiter_agent.py)
+   - **SmartWaiterAgent**: The main class.
+   - **Initialization**: 
+     - Loads `get_rotating_llm()` to ensure high availability.
+     - Compiles the Main Graph.
+   - **The Router**: 
+     - Uses a specialized LLM Prompt (`_decide_intent`) to classify user input into intents: MENU, ORDER, PAYMENT, FEEDBACK, GENERAL.
+   - **Run Loop**: 
+     - Intercepts Input -> Checks Language State -> Translates (if needed) -> Invokes Graph -> Translates Output (if needed) -> Returns Response.
+
+3.3. WORKFLOWS (Subgraphs)
+   These are mini-agents dedicated to specific tasks. This modularity prevents the main prompt from getting too complex.
+
+   a. **Onboarding (workflows/onboarding_flow.py)**
+      - Logic: "Ask Language" -> "Ask Mode" (Voice/Text).
+      - Optimization: Uses NATIVE keyword matching (e.g., "rubutu", "murya") to work even if the Translation API is down.
+      - State: Sets the global `language` variable.
+
+   b. **Ordering (workflows/ordering_flow.py)**
+      - Logic: Adds items to a temporary "cart" in the Database.
+      - Feature: **Upselling**. Uses `recommendation_ops` to suggest drinks/sides based on current order.
+      - Database: Writes to `order_items` table in SQLite.
+
+   c. **Payment (workflows/payment_flow.py)**
+      - Logic: Fetches Unpaid Order -> Calculates Total -> Asks Method -> Processes.
+      - **HITL (Human-in-the-Loop)**: Specifically for "Transfers", it enters a `verifying_transfer` state where it PAUSES until it receives a "verified" signal (simulated admin input).
+      - Database: Updates order status to 'PAID'.
+
+   d. **Fulfillment (workflows/fulfillment_flow.py)**
+      - Logic: Simulated delay -> Checks Kitchen Status -> Asks Feedback -> Closes Session.
+
+3.4. TOOLS & OPERATIONS (tools/*)
+   These are Python functions that perform the "Real Work". The Agent calls these tools; it doesn't do math or DB writes itself.
+
+   - **llm_manager.py**: 
+     - **Why?** Rate Limits. Groq acts as a proxy for Meta Llama 3 but has strict limits.
+     - **How?** Wraps `ChatGroq`. If a 429/401 error occurs, it swaps to the next API key in the list and retries instantly.
+   
+   - **translator.py**:
+     - **Why?** Llama 3 is good at English but weaker at low-resource African languages (Hausa/Igbo).
+     - **How?** Uses Hugging Face API (NLLB-200 Model). Translates User Input -> English (for LLM reasoning) -> Output -> User Language.
+     - **Resilience**: Falls back to original text if API fails (suppresses errors).
+
+   - **menu_ops.py, order_ops.py, db.py**:
+     - Manage Data Persistence using SQLite (`smart_waiter.db`).
+     - Ensures orders aren't lost if the script restarts.
+
+4. FULL OPERATIONAL FLOW (Example)
+----------------------------------
+1. **User**: "Hi"
+   - **Agent**: Enters `Onboarding`. Detects new session. Asks Language.
+2. **User**: "Hausa"
+   - **Agent**: Sets `state['language'] = 'Hausa'`. Asks Mode (Voice/Text) in Hausa.
+3. **User**: "Rubutu" (Text)
+   - **Agent**: Enters `Main Graph`. Router detects "GENERAL" (Greeting). Responds in Hausa (forced by System Prompt).
+4. **User**: "Ina son shinkafa" (I want rice)
+   - **Translator**: (Ideally) Translates to "I want rice".
+   - **Router**: Detects "ORDER" intent.
+   - **Ordering Flow**: Adds Rice to DB. Calculates Price. Responds "Added Rice. Anything else?".
+   - **Translator**: Translates response to Hausa.
+5. **User**: "Na koshi, nawa ne?" (I'm full, how much?)
+   - **Router**: Detects "PAYMENT".
+   - **Payment Flow**: Sums total. Asks Card/Transfer.
+   - **User**: "Transfer".
+   - **Agent**: Shows Bank Details. Waits for "Verified".
+   - **Admin/User**: "Verified".
+   - **Agent**: "Payment Success! Eat in or Takeaway?".
+
+5. RESOURCES & JUSTIFICATION
+----------------------------
+1. **Language Model**: Meta Llama 3.3 (via Groq).
+   - *Why?* State-of-the-art open model, extremely fast on Groq LPU, free tier available.
+2. **Framework**: LangChain / LangGraph.
+   - *Why?* Industry standard for controlling complex agent flows (State machines > simple chains).
+3. **Translation**: NLLB-200 (Meta's No Language Left Behind) via Hugging Face.
+   - *Why?* Specifically optimized for African languages where GPT/Llama often fail.
+4. **Database**: SQLite.
+   - *Why?* Serverless-compatible (file-based), zero config, persistent.
+5. **Environment**: Python (3.10+).
+   - *Why?* Rich ecosystem for AI/LLM tools.
+
+6. CONCLUSION
+-------------
+The Smart Waiter is a robust, production-ready logical core. It separates concerns (Logic vs Data vs Language) allowing for easy scalability (e.g., swapping SQLite for Postgres, or Groq for OpenAI) without rewriting the conversational flows. The inclusion of Key Rotation and Hybrid Multilingual support makes it resilient to common real-world API failures.

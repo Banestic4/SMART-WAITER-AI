@@ -21,6 +21,7 @@ class AgentState(TypedDict):
     payment_status: str | None
     payment_amount: float | None
     payment_order_id: str | None
+    table_number: str | None
     intermediate_steps: List[dict] # Added for workflow compatibility logic
     
 class SmartWaiterAgent:
@@ -148,7 +149,8 @@ class SmartWaiterAgent:
                 "messages": state['messages'], 
                 "session_id": state['session_id'],
                 "language": state.get("language"),
-                "interaction_mode": state.get("interaction_mode")
+                "interaction_mode": state.get("interaction_mode"),
+                "table_number": state.get("table_number")
             }
             result = onboarding_app.invoke(inputs)
             
@@ -156,6 +158,7 @@ class SmartWaiterAgent:
             updates = {}
             if result.get("language"): updates["language"] = result["language"]
             if result.get("interaction_mode"): updates["interaction_mode"] = result["interaction_mode"]
+            if result.get("table_number"): updates["table_number"] = result["table_number"]
             
             if result.get('messages') and isinstance(result['messages'][-1], AIMessage):
                  updates["messages"] = [result['messages'][-1]]
@@ -208,7 +211,7 @@ class SmartWaiterAgent:
 
         def check_onboarding(state: AgentState):
             """Check if user has completed onboarding."""
-            if not state.get("language") or not state.get("interaction_mode"):
+            if not state.get("language") or not state.get("interaction_mode") or not state.get("table_number"):
                 return "onboarding"
             return "router"
 
@@ -257,6 +260,60 @@ class SmartWaiterAgent:
         
         return workflow.compile(checkpointer=self.checkpointer)
     
+    async def astream_run(self, input_text: str, session_id: str = "default"):
+        """
+        Async streaming version of run.
+        Yields tokens for the response.
+        Handles translation:
+        - If not English: Translates input -> English, Runs -> Buffers Result -> Translates Output -> Yields
+        - If English: Yields tokens directly from LLM stream
+        """
+        from tools import translator as trans
+        # 1. State Inspection (Sync or Async?)
+        config = {"configurable": {"thread_id": session_id}}
+        state_snapshot = self.graph.get_state(config)
+        
+        # Default language logic
+        language = "English"
+        if state_snapshot and state_snapshot.values:
+             language = state_snapshot.values.get("language", "English")
+
+        # 2. Translate Input
+        eng_input = input_text
+        if language and language.lower() != "english":
+             # Note: trans.translate is synchronous. In async app, this blocks loop briefly.
+             # Ideally run in threadpool, but for now direct call is acceptable.
+             eng_input = trans.translate(input_text, src_lang=language, target_lang="english")
+        
+        inputs = {
+            "messages": [HumanMessage(content=eng_input)],
+            "session_id": session_id,
+        }
+
+        # 3. Stream
+        if language and language.lower() == "english":
+            # True Streaming
+            async for event in self.graph.astream_events(inputs, config=config, version="v2"):
+                kind = event["event"]
+                # Look for chat model stream events
+                if kind == "on_chat_model_stream":
+                    content = event["data"]["chunk"].content
+                    if content:
+                        yield content
+        else:
+            # Simulated Streaming (Buffer -> Translate -> Yield)
+            full_response = ""
+            async for event in self.graph.astream_events(inputs, config=config, version="v2"):
+                kind = event["event"]
+                if kind == "on_chat_model_stream":
+                    content = event["data"]["chunk"].content
+                    if content:
+                        full_response += content
+            
+            # Now translate
+            translated_response = trans.translate(full_response, src_lang="english", target_lang=language)
+            yield translated_response
+
     def run(self, input_text: str, session_id: str = "default") -> str:
         """Run the agent graph with translation middleware."""
         from tools import translator

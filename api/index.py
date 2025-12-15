@@ -25,11 +25,16 @@ agent = SmartWaiterAgent()
 def read_root():
     return {"message": "Smart Waiter API is running"}
 
+from fastapi.responses import StreamingResponse
+
 @app.post("/api/chat")
-def chat_endpoint(request: ChatRequest, api_key: str = Depends(get_api_key)):
+async def chat_endpoint(request: ChatRequest, api_key: str = Depends(get_api_key)):
     try:
-        response = agent.run(request.message, session_id=request.session_id)
-        return {"response": response}
+        # Stream the response
+        return StreamingResponse(
+            agent.astream_run(request.message, session_id=request.session_id),
+            media_type="text/plain"
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -64,6 +69,43 @@ async def voice_endpoint(file: UploadFile = File(...), session_id: str = "defaul
         return {
             "transcription": transcription,
             "response": response_text
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Voice Error: {str(e)}")
+
+import edge_tts
+import base64
+
+@app.post("/api/voice")
+async def voice_endpoint(file: UploadFile = File(...), session_id: str = "default", api_key: str = Depends(get_api_key)):
+    try:
+        # Transcribe
+        content = await file.read()
+        filename = file.filename or "audio.m4a"
+        
+        transcription = groq_client.audio.transcriptions.create(
+            file=(filename, content),
+            model="whisper-large-v3",
+            response_format="text"
+        )
+        
+        # Process text with Agent
+        response_text = agent.run(transcription, session_id=session_id)
+        
+        # Generate Audio
+        communicate = edge_tts.Communicate(response_text, "en-US-AriaNeural")
+        audio_data = b""
+        async for chunk in communicate.stream():
+            if chunk["type"] == "audio":
+                audio_data += chunk["data"]
+                
+        audio_base64 = base64.b64encode(audio_data).decode('utf-8')
+        
+        return {
+            "transcription": transcription,
+            "response": response_text,
+            "audio": audio_base64
         }
         
     except Exception as e:

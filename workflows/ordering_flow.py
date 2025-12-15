@@ -8,6 +8,9 @@ import json
 class OrderingState(TypedDict):
     messages: list[BaseMessage]
     session_id: str
+    messages: list[BaseMessage]
+    session_id: str
+    table_number: str | None # Added
     intermediate_steps: list
 
 def create_ordering_workflow(llm):
@@ -52,7 +55,9 @@ def create_ordering_workflow(llm):
         steps = state['intermediate_steps']
         last_step = steps[-1] if steps else {}
         action = last_step.get("action")
+        action = last_step.get("action")
         session_id = state.get("session_id", "default")
+        table_number = state.get("table_number") # Retrieve
         
         result_message = ""
         
@@ -78,7 +83,7 @@ def create_ordering_workflow(llm):
                 if rows:
                     target_order_id = rows[0]['order_id']
                 else:
-                    new_o = order_ops.create_order(session_id)
+                    new_o = order_ops.create_order(session_id, table_number=table_number) # Pass table number
                     target_order_id = new_o['order_id']
 
                 res = order_ops.add_item_to_order(target_order_id, item['item_id'], item['quantity'])

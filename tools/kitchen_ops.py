@@ -10,24 +10,26 @@ class KitchenTicket(BaseModel):
     status: str = "PENDING"
     created_at: str
     estimated_time: int = 15
+    notes: Optional[str] = None
 
 # Replaces KITCHEN_DB
 
-def send_ticket(order_id: str) -> Dict:
+def send_ticket(order_id: str, notes: str = None) -> Dict:
     """Send an order to the kitchen (SQLite)."""
     ticket_id = str(uuid.uuid4())[:8]
     created_at = datetime.datetime.now().isoformat()
     
     db.execute_update(
-        "INSERT INTO kitchen_tickets (ticket_id, order_id, status, created_at) VALUES (?, ?, ?, ?)",
-        (ticket_id, order_id, "PREPARING", created_at)
+        "INSERT INTO kitchen_tickets (ticket_id, order_id, status, created_at, notes) VALUES (?, ?, ?, ?, ?)",
+        (ticket_id, order_id, "PREPARING", created_at, notes)
     )
     
     return KitchenTicket(
         ticket_id=ticket_id, 
         order_id=order_id, 
         status="PREPARING",
-        created_at=created_at
+        created_at=created_at,
+        notes=notes
     ).model_dump()
 
 def get_ticket_status(order_id: str) -> str:

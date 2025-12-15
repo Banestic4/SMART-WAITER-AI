@@ -8,3 +8,4 @@ python-dotenv
 langchain-core
 langchain-groq
 python-multipart
+edge-tts
