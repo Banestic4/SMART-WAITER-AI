@@ -129,7 +129,7 @@ def create_payment_workflow(llm):
         amount = state.get('amount')
         
         if status == "processing_transfer":
-            msg = "Please proceed with the transfer to:\nBank: First Bank\nAcct: 3123456789\nName: Evolution Restaurant\n\nWhen done, please say 'Done' or 'Paid'."
+            msg = "Please proceed with the transfer to:\nBank: Monie point\nAcct: 123456789\nName: Evolution Restaurant\n\nWhen done, please say 'Done' or 'Paid'."
             return {"messages": [AIMessage(content=msg)], "status": "processing_transfer"}
             
         elif status == "collecting_transfer_details":

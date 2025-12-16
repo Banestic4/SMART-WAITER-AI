@@ -12,6 +12,7 @@ class OrderingState(TypedDict):
     session_id: str
     table_number: str | None # Added
     intermediate_steps: list
+    order_id: str | None # Added to track active order
 
 def create_ordering_workflow(llm):
     """
@@ -39,8 +40,19 @@ def create_ordering_workflow(llm):
         """
         
         response = llm.invoke([SystemMessage(content=prompt)])
-        content = response.content.replace('```json', '').replace('```', '').strip()
-        
+        content = response.content.strip()
+        # Clean markdown
+        if "```json" in content:
+            content = content.split("```json")[1].split("```")[0].strip()
+        elif "```" in content:
+            content = content.split("```")[0].strip()
+            
+        # Try to find { ... } if garbage around
+        start = content.find('{')
+        end = content.rfind('}')
+        if start != -1 and end != -1:
+            content = content[start:end+1]
+
         try:
             parsed = json.loads(content)
         except:
@@ -125,7 +137,7 @@ def create_ordering_workflow(llm):
         elif action == "remove":
             result_message = "I have removed that item for you."
             
-        return {"intermediate_steps": [{"result": result_message}]}
+        return {"intermediate_steps": [{"result": result_message}], "order_id": target_order_id}
 
     def formulate_response(state: OrderingState):
         """

@@ -116,7 +116,7 @@ def create_onboarding_workflow(llm):
             # Check for "none" variations
             if any(k in content for k in ["none", "babu", "ko si", "ọ dịghị", "aucun", "no", "not seated"]):
                 # Success
-                final_msg = "Thank you! You are all set." # Simplified final msg, re-used in welcome
+                final_msg = "Thank you! You are all set. What can I get for you today? or Would you like to see our menu?" # Simplified final msg, re-used in welcome
                 return {"table_number": "None", "messages": [AIMessage(content=final_msg)]}
             
             # Extract number
@@ -125,7 +125,7 @@ def create_onboarding_workflow(llm):
             if numbers:
                 num = int(numbers[0])
                 if 1 <= num <= 15:
-                    final_msg = f"Table {num} noted. Thank you!" 
+                    final_msg = f"Table {num} noted. Thank you! What can I get for you today? or Would you like to see our menu?" 
                     return {"table_number": str(num), "messages": [AIMessage(content=final_msg)]}
                 else:
                     # Invalid number

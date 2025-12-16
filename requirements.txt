@@ -9,3 +9,4 @@ langchain-core
 langchain-groq
 python-multipart
 edge-tts
+python-telegram-bot

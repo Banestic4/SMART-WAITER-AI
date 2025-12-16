@@ -91,7 +91,7 @@ export function ChatInterface() {
 
         } catch (error) {
             console.error("Chat Error:", error);
-            setMessages(prev => [...prev, { id: 'err', role: 'agent', content: '❌ Error: The Smart Waiter service is temporarily unavailable. Please try again later.' }]);
+            setMessages(prev => [...prev, { id: 'err-' + Date.now(), role: 'agent', content: '❌ Error: The Smart Waiter service is temporarily unavailable. Please try again later.' }]);
         } finally {
             setIsLoading(false);
         }
@@ -153,7 +153,7 @@ export function ChatInterface() {
                         }
                     } catch (error) {
                         console.error("Voice Error:", error);
-                        setMessages(prev => [...prev, { id: 'err', role: 'agent', content: '❌ Voice processing error.' }]);
+                        setMessages(prev => [...prev, { id: 'err-voice-' + Date.now(), role: 'agent', content: '❌ Voice processing error.' }]);
                     } finally {
                         setIsLoading(false);
                     }

@@ -26,7 +26,7 @@ class Config:
         # Fallback or Error
         pass
 
-    GROQ_MODEL = "llama-3.3-70b-versatile"
+    GROQ_MODEL = "meta-llama/llama-4-maverick-17b-128e-instruct"
 
     # Hugging Face Settings
     HF_TOKEN = os.getenv("HF_TOKEN")
@@ -40,3 +40,4 @@ class Config:
     ENV = os.getenv("ENV", "development")
     DEBUG = os.getenv("DEBUG", "True").lower() == "true"
     APP_API_KEY = os.getenv("APP_API_KEY")
+    TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")

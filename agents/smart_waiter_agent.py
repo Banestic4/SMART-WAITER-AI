@@ -169,9 +169,14 @@ class SmartWaiterAgent:
             inputs = {"messages": state['messages'], "session_id": state['session_id']}
             result = ordering_app.invoke(inputs)
             # Extract the last message (response) from the subgraph
+            updates = {}
             if result['messages'] and isinstance(result['messages'][-1], AIMessage):
-                 return {"messages": [result['messages'][-1]]}
-            return {}
+                 updates["messages"] = [result['messages'][-1]]
+            
+            if result.get("order_id"):
+                updates["payment_order_id"] = result["order_id"]
+                
+            return updates
 
         def call_payment(state: AgentState):
             # Pass existing payment state

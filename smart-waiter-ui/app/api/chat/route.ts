@@ -6,7 +6,7 @@ export async function POST(req: NextRequest) {
         const { message, sessionId } = body;
 
         const pythonApiUrl = process.env.PYTHON_API_URL || 'http://127.0.0.1:8000/api/chat';
-        const apiKey = process.env.APP_API_KEY || 'smartwaiter-dev-key';
+        const apiKey = process.env.APP_API_KEY || 'Banestic4';
 
         console.log(`Proxying to Backend: ${pythonApiUrl}`);
 
