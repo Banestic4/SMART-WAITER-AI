@@ -110,12 +110,22 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         # Remove buttons immediately
         await query.edit_message_text(text=f"⏳ Denying Order {order_id}...")
         
-        # Notify Client of failure
+        # Notify Client of failure via AGENT (so state clears)
         rows = db.execute_query("SELECT table_id FROM orders WHERE order_id = ?", (order_id,))
         if rows:
-            user_chat_id = rows[0]['table_id']
-            await context.bot.send_message(chat_id=user_chat_id, text="❌ Payment could not be verified. Please check with the staff.")
+            stored_session_id = rows[0]['table_id']
+            # Inject System Event
+            loop = asyncio.get_running_loop()
+            result = await loop.run_in_executor(None, agent.run, "SYSTEM_EVENT: ADMIN_DENIED", stored_session_id)
+            full_response, metadata = result
             
+            # Send the agent's response (which should be "Payment verification failed...")
+            real_chat_id = stored_session_id.split('_')[0]
+            await context.bot.send_message(chat_id=real_chat_id, text=full_response)
+            
+            if metadata.get("reset_session"):
+                db.increment_session_version(real_chat_id)
+
         await query.edit_message_text(text=f"❌ Order {order_id} Denied.")
 
     # --- CLIENT SESSION ACTIONS ---

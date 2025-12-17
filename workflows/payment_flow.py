@@ -74,8 +74,10 @@ def create_payment_workflow(llm):
         If admin cancel the transaction notify the client that tarnsaction is cancelled.
         """
         if current_status in ["verifying_payment", "waiting_for_admin"]:
-            if "SYSTEM_EVENT: ADMIN_VERIFIED" in last_msg:
+            if "system_event: admin_verified" in last_msg.lower():
                  return {"status": "paid_success"}
+            elif "system_event: admin_denied" in last_msg.lower():
+                 return {"status": "init", "messages": [AIMessage(content="Payment verification failed. Please try again or ask staff for help.")]}
             else:
                  # Interaction Loop Fix:
                  # If user types something else, do NOT go back to 'verifying_payment' (which triggers 'process' node and resends alert).
