@@ -273,11 +273,12 @@ async def reset_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_message(chat_id=update.effective_chat.id, text="🧹 Memory wiped. Starting a fresh session.")
 
 
-if __name__ == '__main__':
+def build_app():
+    """Factory function to create the Application instance."""
     if not Config.TELEGRAM_TOKEN:
         print("Error: TELEGRAM_TOKEN not found in environment variables.")
-        exit(1)
-        
+        return None
+
     async def post_init(application: object) -> None:
         """Explicitly initialize the bot to prevent ExtBot errors."""
         await application.bot.initialize()
@@ -286,29 +287,29 @@ if __name__ == '__main__':
     application = ApplicationBuilder().token(Config.TELEGRAM_TOKEN).post_init(post_init).build()
     
     start_handler = CommandHandler('start', start)
-    msg_handler = MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message)
-    voice_handler = MessageHandler(filters.VOICE, handle_voice)
     approve_handler = CommandHandler('approve', approve_payment_command)
     reset_handler = CommandHandler('reset', reset_command)
     
     application.add_handler(start_handler)
     application.add_handler(reset_handler)
-    # Updated Handler Registration
     
     # 1. Admin Commands & Callbacks
-    application.add_handler(CommandHandler('approve', approve_payment_command)) # Legacy fallback
+    application.add_handler(CommandHandler('approve', approve_payment_command)) 
     application.add_handler(CallbackQueryHandler(handle_callback_query))
     
-    # 2. Role Dispatcher (Replaces direct message handler)
-    # The dispatcher will decide whether to call handle_message (Agent) or Admin logic
+    # 2. Role Dispatcher
     dispatcher_handler = MessageHandler(filters.TEXT & (~filters.COMMAND), role_dispatcher)
     application.add_handler(dispatcher_handler)
     
     # 3. Voice Support
-    application.add_handler(voice_handler)
+    application.add_handler(MessageHandler(filters.VOICE, handle_voice))
     
     application.add_error_handler(error_handler)
-
     
-    print("Telegram Bot is running...")
-    application.run_polling()
+    return application
+
+if __name__ == '__main__':
+    application = build_app()
+    if application:
+        print("Telegram Bot is running...")
+        application.run_polling()
