@@ -264,7 +264,8 @@ def create_payment_workflow(llm):
             "processing_cash": "process",
             "verifying_payment": "process",
             "waiting_for_admin": END, # Quiet wait
-            "ask_disposition": "analyze", 
+            "ask_disposition": "analyze",
+            "paid_success": "process",
             "complete": END,
             "cancelled": END,
             "no_order": END

@@ -55,10 +55,13 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
     query = update.callback_query
     await query.answer() # Acknowledge interaction IMMEDIATELY
     
+    print(f"DEBUG: Callback received: {query.data}")
+    
     data = query.data
     # Format: action_orderId (e.g., confirm_12345)
     
     if not data:
+        print("DEBUG: No data in callback")
         return
 
     parts = data.split("_")
