@@ -5,7 +5,7 @@ import time
 class SeamlessTranslator:
     """
     Translator using Hugging Face Inference API for SeamlessM4T.
-    Falls back to original text if translation fails.
+    Dont Falls back to original text if translation fails, Rather give the user a prompt to please choose another language.
     """
     def __init__(self):
         self.api_url = Config.HF_TRANSLATION_URL

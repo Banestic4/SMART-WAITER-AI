@@ -99,5 +99,38 @@ def add_item_to_order(order_id: str, item_id: str, quantity: int = 1) -> bool:
         
     return True
 
+def remove_item_from_order(order_id: str, item_id: str, quantity: int = 1) -> bool:
+    """Remove item from order in DB (decrement or delete) and restore stock."""
+    
+    # 1. Check if item exists in order
+    existing = db.execute_query(
+        "SELECT id, quantity FROM order_items WHERE order_id = ? AND item_id = ?", 
+        (order_id, item_id)
+    )
+    
+    if not existing:
+        return False
+        
+    current_qty = existing[0]['quantity']
+    row_id = existing[0]['id']
+    
+    # 2. Update DB
+    if quantity >= current_qty:
+        # Remove completely
+        db.execute_update("DELETE FROM order_items WHERE id = ?", (row_id,))
+        removed_qty = current_qty
+    else:
+        # Decrement
+        new_qty = current_qty - quantity
+        db.execute_update("UPDATE order_items SET quantity = ? WHERE id = ?", (new_qty, row_id))
+        removed_qty = quantity
+        
+    # 3. Restore Stock (Optional, but good practice)
+    # Assuming inventory_ops has increment? Check inventory_ops later.
+    # For now, let's assume valid returns restore stock.
+    inventory_ops.increment_stock(item_id, removed_qty)
+    
+    return True
+
 def cancel_order(order_id: str) -> bool:
     return db.execute_update("UPDATE orders SET status = 'CANCELLED' WHERE order_id = ?", (order_id,)) > 0

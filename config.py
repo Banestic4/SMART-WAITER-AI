@@ -41,3 +41,4 @@ class Config:
     DEBUG = os.getenv("DEBUG", "True").lower() == "true"
     APP_API_KEY = os.getenv("APP_API_KEY")
     TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+    TELEGRAM_ADMIN_CHAT_ID = os.getenv("TELEGRAM_ADMIN_CHAT_ID") # Add this: ID of the Admin's Telegram Chat

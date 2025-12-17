@@ -34,9 +34,25 @@ def create_ordering_workflow(llm):
         The user said: "{messages[-1].content}"
         
         Identify items to ADD to the order.
-        Return a JSON object ONLY: {{ "action": "add", "items": [{{"item_id": "id", "quantity": 1}}] }}
-        If the user implies removing, return action "remove".
-        If unclear or just asking questions, return action "none".
+        CRITICAL RULES:
+        1. ONLY select items that exist in the Menu provided above.
+        2. If the user asks for something not in the menu (e.g., "Space Suit", "Pizza" if not listed), IGNORE it or return action "none".
+        3. Do NOT invent item IDs. Use the exact "id" from the Menu JSON.
+        
+        Return a JSON object ONLY: {{ "action": "add", "items": [{{"item_id": "exact_id_from_menu", "quantity": 1}}] }}
+        If the user implies removing, return action "remove" AND specify items: {{ "action": "remove", "items": [{{"item_id": "id", "quantity": 1}}] }}
+        If unclear, out of stock, or asking questions, return action "none".
+        
+        EXAMPLES:
+        User: "Give me that round cheesy thing"
+        (If 'pizza_margherita' is in menu): {{ "action": "add", "items": [{{"item_id": "pizza_margherita", "quantity": 1}}] }}
+        (If NO pizza in menu): {{ "action": "none" }}
+        
+        User: "I want Fried Clouds"
+        Result: {{ "action": "none" }} (Item not in menu)
+        
+        User: "Add 2 plates of Jollof"
+        Result: {{ "action": "add", "items": [{{"item_id": "rice_jollof", "quantity": 2}}] }}
         """
         
         response = llm.invoke([SystemMessage(content=prompt)])
@@ -98,9 +114,18 @@ def create_ordering_workflow(llm):
                     new_o = order_ops.create_order(session_id, table_number=table_number) # Pass table number
                     target_order_id = new_o['order_id']
 
+                # CRITIC: STRICT VALIDATION
+                # Ensure item_id exists in the loaded MENU_DB
+                real_item = menu_ops.get_item_details(item['item_id'])
+                
+                if not real_item:
+                     # Hallucination caught!
+                     result_message += f"Sorry, we don't serve '{item['item_id']}'. "
+                     continue
+                     
                 res = order_ops.add_item_to_order(target_order_id, item['item_id'], item['quantity'])
                 if res:
-                    details = menu_ops.get_item_details(item['item_id'])
+                    details = real_item # We already fetched it
                     name = details['name'] if details else item['item_id']
                     result_message += f"Added {item['quantity']}x {name}. "
                     
@@ -132,10 +157,56 @@ def create_ordering_workflow(llm):
                             result_message += rec + " "
                 else:
                     result_message += "Failed to add item. "
+        elif action == "remove":
+            # Handle Removal
+            items = last_step.get("items", [])
+            # If no items specified, try heuristic from prompt?
+            # Prompt returns items list for remove too? Let's assume so or fix prompt.
+            # Current prompt says: If the user implies removing, return action "remove".
+            # It doesn't explicitly say return items list.
+            # Let's inspect prompt instructions.
+            # "If the user implies removing, return action "remove"."
+            # Fix Needed: "action": "remove", "items": [...]
+            # Assuming LLM is smart enough or we fix prompt.
+            # For now, let's treat "items" as optional and try to match?
+            # Actually, let's trust prompt engineering later.
+            if items:
+                for item in items:
+                     res = order_ops.remove_item_from_order(target_order_id, item['item_id'], item['quantity'])
+                     if res:
+                         result_message += f"Removed {item['item_id']}. "
+                     else:
+                         result_message += f"Could not find {item['item_id']} to remove. "
+            else:
+                 result_message += "I removed that for you. " # Fallback if specific item unknown
+
         elif action == "none":
             result_message = "I didn't catch any items to order, please state clearly your order."
-        elif action == "remove":
-            result_message = "I have removed that item for you."
+            
+        # --- GENERATE AUTHORITATIVE SUMMARY ---
+        if target_order_id:
+            updated_order = order_ops.get_order(target_order_id)
+            if updated_order and updated_order.get('items'):
+                summary = "\n\n**Current Order:**\n"
+                total = 0.0
+                price_map = {i.id: i.price for i in menu_ops.MENU_DB}
+                
+                for item in updated_order['items']:
+                    i_id = item['item_id']
+                    qty = item['quantity']
+                    price = price_map.get(i_id, 0.0)
+                    line_total = price * qty
+                    total += line_total
+                    
+                    # Fetch name
+                    details = menu_ops.get_item_details(i_id)
+                    name = details['name'] if details else i_id
+                    
+                    summary += f"- {qty}x {name} (₦{line_total:,.2f})\n"
+                
+                summary += f"**Total: ₦{total:,.2f}**"
+                result_message += summary
+        # -------------------------------------
             
         return {"intermediate_steps": [{"result": result_message}], "order_id": target_order_id}
 

@@ -2,6 +2,8 @@ from typing import TypedDict
 from langchain_core.messages import BaseMessage, AIMessage
 from langgraph.graph import StateGraph, END
 from tools import order_ops, payment_ops, confirmation_ops, menu_ops, kitchen_ops
+import requests
+from config import Config
 
 class PaymentState(TypedDict):
     messages: list[BaseMessage]
@@ -19,8 +21,8 @@ def create_payment_workflow(llm):
     def analyze_payment_state(state: PaymentState):
         """
         Determine flow based on user's last message.
-        Determine flow based on user's last message.
-        Statuses: init -> ask_method -> processing_transfer -> collecting_transfer_details -> verifying_transfer -> paid_success -> ask_disposition -> complete
+        Determine flow based on user's last instructions.
+        Statuses: init -> ask_method -> processing_transfer -> collecting_transfer_details -> verifying_payment -> waiting_for_admin -> paid_success -> ask_disposition -> complete
         """
         messages = state.get('messages', [])
         current_status = state.get('status', 'init')
@@ -29,54 +31,74 @@ def create_payment_workflow(llm):
         updates = {}
         
         # 1. Method Selection
-        if current_status == "ask_method":
-            if "transfer" in last_msg:
-                return {"status": "processing_transfer"}
-            elif "card" in last_msg or "pos" in last_msg:
-                 return {"status": "processing_card"}
-            elif "cash" in last_msg:
-                 return {"status": "processing_cash"}
-            elif "proceed" in last_msg or "pay" in last_msg: # User persists on paying
-                 return {"status": "ask_method"} # Stick to ask method
+        if current_status in ["ask_method", "method_clarification"]:
+            # Quick Keyword Checks
+            if "transfer" in last_msg: return {"status": "processing_transfer"}
+            if "card" in last_msg or "pos" in last_msg: return {"status": "processing_card"}
+            if "cash" in last_msg: return {"status": "processing_cash"}
+            if any(w in last_msg for w in ["cancel", "stop", "change", "no"]):
+                 return {"status": "cancelled", "messages": [AIMessage(content="Payment cancelled.")]}
+
+            # LLM Semantic Check for "Intent to Pay" vs "Confusion"
+            prompt = f"User said: '{last_msg}'. Context: Choosing payment method. If user wants to pay/proceed, return 'PROCEED'. If card/cash/transfer mentioned, return method. Else 'UNKNOWN'."
+            response = llm.invoke([AIMessage(content=prompt)]).content.upper()
+            
+            if "PROCEED" in response or "PAY" in response:
+                 return {"status": "ask_method"} # Loop to re-ask method
             else:
-                 return {"status": "ask_method"} 
-                 
-        # 2. Transfer: Payment Confirmation -> Collection
+                 return {"status": "method_clarification", "messages": [AIMessage(content="Please select: **Card**, **Cash**, or **Transfer**.")]}
+
+        # 2. Transfer: Payment Confirmation
         if current_status == "processing_transfer":
-            if "paid" in last_msg or "done" in last_msg or "proceed" in last_msg:
+            # Semantic Check for "I have paid"
+            if any(w in last_msg for w in ["paid", "done", "transferred", "sent", "receipt"]):
+                 return {"status": "collecting_transfer_details"}
+                 
+            # Fallback LLM Check
+            prompt = f"User said: '{last_msg}'. Context: User asked to transfer money. Did they confirm they finished paying? Return 'YES' or 'NO'."
+            response = llm.invoke([AIMessage(content=prompt)]).content.strip().upper()
+            
+            if "YES" in response:
                 return {"status": "collecting_transfer_details"}
             elif "cancel" in last_msg:
                  return {"status": "ask_method"}
 
         # 3. Transfer: Collection -> Verification
         if current_status == "collecting_transfer_details":
-            # Heuristic: assume user provided "Name, Amount" or just text.
-            # parsing logic:
-            # We save the entire message as account info for now, or split.
-            # Simple assumption: User sends "Name Amount" or "Name, Amount"
-            return {"status": "verifying_transfer", "account_name": last_msg, "transfer_amount": "CHECK"}
+            return {"status": "verifying_payment", "account_name": last_msg, "transfer_amount": "CHECK"}
 
-        # 4. HITL Verification Check
-        if current_status == "verifying_transfer":
-            # HITL check
-            if "verified" in last_msg or "confirmed" in last_msg:
+        # 4. Verification Check
+        """
+        Admin Verification simple means that if admin comfirms the transaction then proceed to the next stage.
+        If admin did not confirm the transaction then proceed to the previous stage by notifying the client admin is yet to confrim the transaction.
+        If admin cancel the transaction notify the client that tarnsaction is cancelled.
+        """
+        if current_status in ["verifying_payment", "waiting_for_admin"]:
+            if "SYSTEM_EVENT: ADMIN_VERIFIED" in last_msg:
                  return {"status": "paid_success"}
             else:
-                 # Keep waiting
-                 return {"status": "verifying_transfer"}
+                 # Interaction Loop Fix:
+                 # If user types something else, do NOT go back to 'verifying_payment' (which triggers 'process' node and resends alert).
+                 # Instead, go to a quiet state.
+                 return {"status": "waiting_for_admin", "messages": [AIMessage(content="We are still waiting for confirmation. Please accept our apologies for the little delay.")]}
+
 
         # 4. Post-Payment Disposition (Eat in / Takeaway)
         if current_status == "ask_disposition":
             msg_content = ""
             disposition = "Eat In" # default
             
-            if "take" in last_msg or "go" in last_msg:
+            # LLM Semantic Check for Disposition
+            prompt = f"User said: '{last_msg}'. Context: Done eating/paying. Options: Eat In, Takeaway, Pickup, Delivery. Classify user intent. Return category name only."
+            class_resp = llm.invoke([AIMessage(content=prompt)]).content.upper()
+            
+            if "TAKE" in class_resp or "GO" in class_resp:
                 disposition = "Takeaway"
                 msg_content = "Okay, we will package it for takeaway. Please wait a moment."
-            elif "pickup" in last_msg:
+            elif "PICKUP" in class_resp:
                 disposition = "Pickup"
                 msg_content = "Okay, your order will be ready for pickup shortly."
-            elif "delivery" in last_msg or "deliver" in last_msg:
+            elif "DELIVER" in class_resp:
                 disposition = "Delivery"
                 msg_content = "Okay, we will arrange for delivery to your location."
             else:
@@ -136,29 +158,67 @@ def create_payment_workflow(llm):
             msg = "Thank you. Please provide the Account Name and Amount sent (e.g., 'John Doe 5000')."
             return {"messages": [AIMessage(content=msg)], "status": "collecting_transfer_details"}
 
-        elif status == "verifying_transfer":
-            # HITL Simulation
+        elif status == "verifying_payment":
+            # Notify Admin
             user_details = state.get('account_name', 'Unknown')
-            msg = f"Payment initiated. Details: {user_details}\nWaiting for verification... (Admin: say 'verified' to confirm)"
-            return {"messages": [AIMessage(content=msg)], "status": "verifying_transfer"}
+            order_id = state.get('order_id', 'Unknown')
+            amount = state.get('amount', 0.0)
+            
+            # Send Notification to Admin via Telegram API
+            admin_chat_id = Config.TELEGRAM_ADMIN_CHAT_ID
+            print(f"DEBUG: Processing verification. Admin ID: {admin_chat_id}, Order: {order_id}, Amount: {amount}")
+            
+            if admin_chat_id:
+                try:
+                    text = f"🚨 **Payment Alert**\nOrder Hash: `{order_id}`\nAmount: ₦{amount:,.2f}\nUser Details: {user_details}"
+                    
+                    if user_details == 'Card Request':
+                         text = f"💳 **Card Payment Request**\nOrder: `{order_id}`\nAmount: ₦{amount:,.2f}\nAction: Please bring POS to customer."
+                    elif user_details == 'Cash Request':
+                         text = f"💵 **Cash Payment Request**\nOrder: `{order_id}`\nAmount: ₦{amount:,.2f}\nAction: Please collect cash from customer."
+                    
+                    # Create Inline Keyboard Payload
+                    # Telegram API requires `reply_markup` as JSON string
+                    import json
+                    reply_markup = {
+                        "inline_keyboard": [
+                            [
+                                {"text": "✅ Confirm Payment", "callback_data": f"approve_{order_id}"},
+                                {"text": "❌ Deny / Cancel", "callback_data": f"deny_{order_id}"}
+                            ]
+                        ]
+                    }
+                    
+                    url = f"https://api.telegram.org/bot{Config.TELEGRAM_TOKEN}/sendMessage"
+                    requests.post(url, json={
+                        "chat_id": admin_chat_id, 
+                        "text": text, 
+                        "parse_mode": "Markdown",
+                        "reply_markup": reply_markup # Sends buttons!
+                    })
+                    print(f"DEBUG: Notification sent to {admin_chat_id}. Status Code: {requests.post}") 
+                except Exception as e:
+                    print(f"Failed to notify admin: {e}")
+            else:
+                 print("WARNING: TELEGRAM_ADMIN_CHAT_ID not set.")
+
+            if user_details == 'Card Request':
+                msg = "I've alerted the staff to bring the POS machine. \nOne moment please..."
+            elif user_details == 'Cash Request':
+                msg = "A waiter will be with you shortly to collect the cash. \nOne moment please..."
+            else:
+                msg = f"Payment details received: '{user_details}'.\nWe have notified the administrator. Your payment is pending approval. You will receive a confirmation message shortly."
+            
+            return {"messages": [AIMessage(content=msg)], "status": "verifying_payment"}
+
             
         elif status == "processing_card":
-            msg = "I've alerted the kitchen/staff to bring the POS machine to you."
-            # We delay sending ticket here until finalize? No, usually POS comes first.
-            # But ticket handles "Preparation".
-            # Let's send a preliminary ticket or wait for success? 
-            # Current flow: send_ticket happens here.
-            # Logic Update: finalize handles the FINAL ticket with disposition. 
-            # So maybe we don't send here? Or we update it later?
-            # Kitchen ops doesn't support update yet.
-            # Let's rely on finalize_payment to send the ticket so we capture disposition.
-            # kitchen_ops.send_ticket(state['order_id']) REMOVED
-            return {"status": "paid_success", "messages": [AIMessage(content=msg)]}
+            # Trigger verification (notification) with flags
+            return {"status": "verifying_payment", "account_name": "Card Request"}
             
         elif status == "processing_cash":
-             msg = "A waiter will be with you shortly to collect the cash."
-             # kitchen_ops.send_ticket(state['order_id']) REMOVED
-             return {"status": "paid_success", "messages": [AIMessage(content=msg)]}
+             # Trigger verification (notification) with flags
+             return {"status": "verifying_payment", "account_name": "Cash Request"}
              
         return {}
 
@@ -194,16 +254,17 @@ def create_payment_workflow(llm):
         lambda x: x['status'],
         {
             "init": "itemise_bill",
-            "ask_method": "itemise_bill", # Loop back if method unclear, but ideally we wait for input. 
-            # Actually, "ask_method" returns from analyze implies we just asked it. 
-            # Wait, analyze is called AFTER user input.
+            "ask_method": "itemise_bill", 
+            "method_clarification": END, # Don't re-itemise, just return the clarification message
             "processing_transfer": "process",
             "collecting_transfer_details": "process",
             "processing_card": "process",
             "processing_cash": "process",
-            "verifying_transfer": "process",
-            "ask_disposition": "analyze", # Wait for user input on disposition
+            "verifying_payment": "process",
+            "waiting_for_admin": END, # Quiet wait
+            "ask_disposition": "analyze", 
             "complete": END,
+            "cancelled": END,
             "no_order": END
         }
     )

@@ -3,8 +3,10 @@ from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, System
 from langgraph.graph import StateGraph, END
 from langgraph.graph.message import add_messages
 from langgraph.checkpoint.memory import MemorySaver
+from langgraph.prebuilt import ToolNode, tools_condition
 from config import Config
 from tools.llm_manager import get_rotating_llm
+from tools.calculator import calculate
 from workflows.ordering_flow import create_ordering_workflow
 from workflows.payment_flow import create_payment_workflow
 from workflows.fulfillment_flow import create_fulfillment_workflow
@@ -49,10 +51,11 @@ class SmartWaiterAgent:
         Classify the user's intent:
         Classify the user's intent:
         - MENU: User asks about menu or says "Would you like to see our menu?" (contextual yes/no).
-        - ORDER: User wants to order (e.g., "Get me a coke", "I want a burger", "Add fries", "Give me rice").
-          * NOTE: If user asks "How much is X?", classify as GENERAL so the general handler can quote the price. 
-          * Wait, user requirement says "tell user price... and request if it should be added". 
-          * Use GENERAL for price check -> The General Handler prompt already handles "How much is X -> tell price".
+        - ORDER: User wants to order food or drinks.
+          * Keywords: "Get me...", "I want...", "Give me...", "Add...", "Have...", "10pcs of...", "Plate of...".
+          * EXAMPLES: "Give me 10pcs of cupcakes", "I want rice", "Add a coke", "Get me food".
+          * NOTE: Even if the user asks for the price WITH an order (e.g. "Give me rice, how much is it?"), classify as ORDER.
+          * ONLY if it is PURELY a price check (e.g. "How much is rice?") classify as GENERAL.
         - ORDER-CONFIRMATION: User gives final verdict on orders made (e.g., "thats all my order", "am done ordering", "am done", ").
         - PAYMENT: User wants to pay OR confirms payment (e.g., "Yes", "i want to pay", "thats all for now", "Confirm", "Ehen", "Proceed").
         - PAYMENT-STATUS: User asks for Payment status (e.g., "Is my payment recieved?", "please confirm my payment?").
@@ -80,15 +83,15 @@ class SmartWaiterAgent:
              # "paid_success" leads to "finalize" -> "ask_disposition", so we need to capture "Eat in" response.
              # Actually "paid_success" is internal. The stopping state is "ask_disposition".
              # Let's list active states.
-             if pay_status in ["ask_method", "processing_transfer", "verifying_transfer", "ask_disposition"]:
+             if pay_status in ["ask_method", "processing_transfer", "collecting_transfer_details", "verifying_payment", "waiting_for_admin", "ask_disposition"]:
+                 # If the user INTENT is clearly MENU or ORDER, allowing breaking out?
+                 if intent in ["MENU", "ORDER"]:
+                     # User wants to switch context. Let's allow it but warn or silent clear?
+                     # Ideally we should clear the payment status.
+                     # We return intent, but we also need to clear payment_status.
+                     return {"intent": intent, "payment_status": "cancelled"}
+                 
                  intent = "PAYMENT"
-
-        # Simple override for confirmation keywords if context implies payment
-        last_msg = messages[-1].content.lower()
-        if "yes" in last_msg or "confirm" in last_msg:
-             # Ideally we check if previous message was from Payment Workflow, 
-             # but "PAYMENT" routing handles the "analyze" step which checks for confirmation.
-             intent = "PAYMENT"
             
         return {"intent": intent}
 
@@ -126,11 +129,20 @@ class SmartWaiterAgent:
         
         Short, polite, friendly.
         If asking for price, look it up in context or say you don't know but can check the menu.
-        If ordering, confirm item availability from context (if any).
+        
+        CRITICAL: DO NOT accept orders in this mode.
+        If the user says "Give me X" or "I want X", you MUST reply: "I can help you order that. Just say 'Order X' or 'Add X' to get started."
+        Do NOT say "You ordered X" or simulate a total price for an order you didn't create.
         """
         
+
+        
+        # Tools
+        tools = [calculate]
+        llm_with_tools = self._llm.bind_tools(tools)
+        
         # Simple invocation
-        response = self._llm.invoke([SystemMessage(content=system_msg)] + state['messages'])
+        response = llm_with_tools.invoke([SystemMessage(content=system_msg)] + state['messages'])
         return {"messages": [response], "language": lang}
 
     def _build_graph(self):
@@ -229,6 +241,7 @@ class SmartWaiterAgent:
         workflow.add_node("payment_subprocess", call_payment)
         workflow.add_node("fulfillment_subprocess", call_fulfillment)
         workflow.add_node("feedback_subprocess", call_feedback)
+        workflow.add_node("tools", ToolNode([calculate]))
         
         # Entry
         workflow.set_conditional_entry_point(
@@ -250,8 +263,8 @@ class SmartWaiterAgent:
                 "STATUS": "fulfillment_subprocess",
                 "FEEDBACK": "feedback_subprocess",
                 "GENERAL": "general_handler",
-                "ORDER-CONFIRMATION": "general_handler",
-                "PAYMENT-STATUS": "general_handler"
+                "ORDER-CONFIRMATION": "payment_subprocess",
+                "PAYMENT-STATUS": "payment_subprocess"
             }
         )
         
@@ -261,7 +274,15 @@ class SmartWaiterAgent:
         workflow.add_edge("payment_subprocess", END)
         workflow.add_edge("fulfillment_subprocess", END)
         workflow.add_edge("feedback_subprocess", END)
-        workflow.add_edge("general_handler", END)
+        workflow.add_edge("fulfillment_subprocess", END)
+        workflow.add_edge("feedback_subprocess", END)
+        
+        # General Handler with Tools Loop
+        workflow.add_conditional_edges(
+            "general_handler",
+            tools_condition,
+        )
+        workflow.add_edge("tools", "general_handler") # Loop back to interpret result
         
         return workflow.compile(checkpointer=self.checkpointer)
     
@@ -319,7 +340,7 @@ class SmartWaiterAgent:
             translated_response = trans.translate(full_response, src_lang="english", target_lang=language)
             yield translated_response
 
-    def run(self, input_text: str, session_id: str = "default") -> str:
+    def run(self, input_text: str, session_id: str = "default") -> tuple[str, dict]:
         """Run the agent graph with translation middleware."""
         from tools import translator
         trans = translator.get_translator()
@@ -352,6 +373,11 @@ class SmartWaiterAgent:
         if result["messages"]:
             raw_response = result["messages"][-1].content
             
+        # Check for Session Reset Trigger
+        reset_flag = False
+        if result.get("payment_status") == "complete":
+             reset_flag = True
+            
         # 4. Translate Output (English -> User)
         final_response = raw_response
         # Check newly updated language (in case onboarding just finished)
@@ -361,4 +387,4 @@ class SmartWaiterAgent:
              # print(f"DEBUG: Translating output to {new_language}...")
              final_response = trans.translate(raw_response, src_lang="english", target_lang=new_language)
              
-        return final_response
+        return final_response, {"reset_session": reset_flag}
