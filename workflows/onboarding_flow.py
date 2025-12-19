@@ -31,17 +31,42 @@ def create_onboarding_workflow(llm):
         msgs = state.get("messages", [])
         if msgs and isinstance(msgs[-1], HumanMessage):
             content = msgs[-1].content.lower()
+            
+            from storage import db
+            # Extract basic user_id from session_id (e.g. "12345_1" -> "12345")
+            user_id = state['session_id'].split('_')[0]
+            
+            selected_lang = None
+            response_text = ""
+            
             # Simple heuristic or LLM based. Let's use simple keywords for robust speed.
             if "english" in content:
-                return {"language": "English", "messages": [AIMessage(content="Great, English it is.")]}
+                selected_lang = "English"
+                response_text = "Great, English it is."
             elif "hausa" in content:
-                return {"language": "Hausa", "messages": [AIMessage(content="To, za mu yi magana da Hausa.")]}
+                selected_lang = "Hausa"
+                response_text = "To, za mu yi magana da Hausa."
             elif "yoruba" in content:
-                return {"language": "Yoruba", "messages": [AIMessage(content="O da, a ma sọ Yoruba.")]}
+                selected_lang = "Yoruba"
+                response_text = "O da, a ma sọ Yoruba."
             elif "igbo" in content:
-                return {"language": "Igbo", "messages": [AIMessage(content="Ọ dị mma, anyị ga-asụ Igbo.")]}
+                selected_lang = "Igbo"
+                response_text = "Ọ dị mma, anyị ga-asụ Igbo."
             elif "french" in content:
-                return {"language": "French", "messages": [AIMessage(content="D'accord, nous parlerons français.")]}
+                selected_lang = "French"
+                response_text = "D'accord, nous parlerons français."
+            
+            if selected_lang:
+                # Persist to DB
+                db.set_user_pref(user_id, language=selected_lang)
+                
+                # Append Note
+                note = "\n\n(Note: You can change your selected language anytime by typing 'reset language'.)"
+                if selected_lang == "Hausa": note = "\n\n(Lura: Kuna iya canza yaren da kuka zaɓa kowane lokaci ta hanyar rubuta 'reset language'.)"
+                elif selected_lang == "French": note = "\n\n(Note : Vous pouvez changer votre langue sélectionnée à tout moment en tapant 'reset language'.)"
+                # Keep other langs default English note or translate if capable, but Requirement said "Note: ..."
+                
+                return {"language": selected_lang, "messages": [AIMessage(content=response_text + note)]}
             
             # If it's the very first interaction (start)
             if len(msgs) == 1 and not state.get("language"):
@@ -68,6 +93,12 @@ def create_onboarding_workflow(llm):
                     "French": "Bienvenue encore une fois ! Que puis-je vous servir aujourd'hui ? Ou souhaitez-vous voir notre menu ?"
                 }
                 msg = responses.get(lang, responses["English"])
+                
+                # Persist
+                from storage import db
+                user_id = state['session_id'].split('_')[0]
+                db.set_user_pref(user_id, interaction_mode="voice")
+                
                 return {"interaction_mode": "voice", "messages": [AIMessage(content=msg)]}
             elif any(k in content for k in ["message", "text", "rubutu", "ifiranṣẹ", "ozi", "texte"]):
                 # User chose Message
@@ -80,6 +111,12 @@ def create_onboarding_workflow(llm):
                     "French": "Bienvenue encore une fois ! Que puis-je vous servir aujourd'hui ? Ou souhaitez-vous voir notre menu ?"
                 }
                 msg = responses.get(lang, responses["English"])
+                
+                # Persist
+                from storage import db
+                user_id = state['session_id'].split('_')[0]
+                db.set_user_pref(user_id, interaction_mode="message")
+                
                 return {"interaction_mode": "message", "messages": [AIMessage(content=msg)]}
         
         # If language is known, we could customize this prompt, but keeping it simple for now.

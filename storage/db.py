@@ -53,6 +53,13 @@ def init_db():
         session_version INTEGER
     )''')
     
+    # User Preferences Table (Language Lock)
+    c.execute('''CREATE TABLE IF NOT EXISTS user_prefs (
+        user_id TEXT PRIMARY KEY,
+        language TEXT,
+        interaction_mode TEXT
+    )''')
+    
     conn.commit()
     conn.close()
     
@@ -92,3 +99,29 @@ def get_session_version(user_id: str) -> int:
 def increment_session_version(user_id: str):
     """Rotate the session to clear context."""
     execute_update("UPDATE user_sessions SET session_version = session_version + 1 WHERE user_id = ?", (user_id,))
+
+# --- User Preferences ---
+def get_user_pref(user_id: str) -> dict:
+    """Get stored user preferences."""
+    rows = execute_query("SELECT language, interaction_mode FROM user_prefs WHERE user_id = ?", (user_id,))
+    if rows:
+        return dict(rows[0])
+    return {}
+
+def set_user_pref(user_id: str, language: Optional[str] = None, interaction_mode: Optional[str] = None):
+    """Upsert user preferences."""
+    # Check if exists
+    current = get_user_pref(user_id)
+    if not current:
+        execute_update("INSERT INTO user_prefs (user_id, language, interaction_mode) VALUES (?, ?, ?)", 
+                       (user_id, language, interaction_mode))
+    else:
+        # Update only provided fields
+        new_lang = language if language else current.get('language')
+        new_mode = interaction_mode if interaction_mode else current.get('interaction_mode')
+        execute_update("UPDATE user_prefs SET language = ?, interaction_mode = ? WHERE user_id = ?", 
+                       (new_lang, new_mode, user_id))
+
+def clear_user_pref(user_id: str):
+    """Clear user preferences (Reset Language)."""
+    execute_update("DELETE FROM user_prefs WHERE user_id = ?", (user_id,))

@@ -60,6 +60,7 @@ class SmartWaiterAgent:
         - PAYMENT: User wants to pay OR confirms payment (e.g., "Yes", "i want to pay", "thats all for now", "Confirm", "Ehen", "Proceed").
         - PAYMENT-STATUS: User asks for Payment status (e.g., "Is my payment recieved?", "please confirm my payment?").
         - FEEDBACK: User gives a review or feedback (e.g., "Good food", "Terrible service", "Thank you", "Great job").
+        - RESET-LANGUAGE: User wants to change language / reset (e.g., "Reset Language", "Change Language", "Switch to English").
         - GENERAL: General chat.
         
         Respond ONLY with the category name.
@@ -73,7 +74,16 @@ class SmartWaiterAgent:
         response = self._llm.invoke([system_prompt] + messages)
         intent = response.content.strip().upper()
         
-        valid_intents = ["MENU", "ORDER", "ORDER-CONFIRMATION", "PAYMENT", "PAYMENT-STATUS", "FEEDBACK", "GENERAL"]
+        if intent == "RESET-LANGUAGE":
+             from storage import db
+             # Extract user ID from session ID (which might be in state or pass context?)
+             # state['session_id'] is available in AgentState definition? Yes.
+             user_id = state['session_id'].split('_')[0]
+             db.clear_user_pref(user_id)
+             # Return updates to clear state logic
+             return {"intent": "RESET-LANGUAGE", "language": None, "interaction_mode": None}
+        
+        valid_intents = ["MENU", "ORDER", "ORDER-CONFIRMATION", "PAYMENT", "PAYMENT-STATUS", "FEEDBACK", "GENERAL", "RESET-LANGUAGE"]
         if intent not in valid_intents:
             intent = "GENERAL"
         
@@ -85,7 +95,7 @@ class SmartWaiterAgent:
              # Let's list active states.
              if pay_status in ["ask_method", "processing_transfer", "collecting_transfer_details", "verifying_payment", "waiting_for_admin", "ask_disposition"]:
                  # If the user INTENT is clearly MENU or ORDER, allowing breaking out?
-                 if intent in ["MENU", "ORDER"]:
+                 if intent in ["MENU", "ORDER", "RESET-LANGUAGE"]:
                      # User wants to switch context. Let's allow it but warn or silent clear?
                      # Ideally we should clear the payment status.
                      # We return intent, but we also need to clear payment_status.
@@ -138,12 +148,11 @@ class SmartWaiterAgent:
         
 
         
-        # Tools
-        tools = [calculate]
-        llm_with_tools = self._llm.bind_tools(tools)
-        
         # Simple invocation
-        response = llm_with_tools.invoke([SystemMessage(content=system_msg)] + state['messages'])
+        # We generally don't need tools for general chat (menu display, greetings, small talk).
+        # Binding tools can cause Groq to fail if the model outputs long text (like the menu) 
+        # instead of a tool call when it gets confused.
+        response = self._llm.invoke([SystemMessage(content=system_msg)] + state['messages'])
         return {"messages": [response], "language": lang}
 
     def _build_graph(self):
@@ -265,7 +274,8 @@ class SmartWaiterAgent:
                 "FEEDBACK": "feedback_subprocess",
                 "GENERAL": "general_handler",
                 "ORDER-CONFIRMATION": "payment_subprocess",
-                "PAYMENT-STATUS": "payment_subprocess"
+                "PAYMENT-STATUS": "payment_subprocess",
+                "RESET-LANGUAGE": "onboarding_subprocess"
             }
         )
         
@@ -302,7 +312,15 @@ class SmartWaiterAgent:
         
         # Default language logic
         language = "English"
-        if state_snapshot and state_snapshot.values:
+        
+        # Load Persisted User Preferences (Language Lock)
+        from storage import db
+        user_id = session_id.split('_')[0] 
+        user_pref = db.get_user_pref(user_id)
+        
+        if user_pref and user_pref.get('language'):
+            language = user_pref['language']
+        elif state_snapshot and state_snapshot.values:
              language = state_snapshot.values.get("language", "English")
 
         # 2. Translate Input
@@ -350,7 +368,17 @@ class SmartWaiterAgent:
         config = {"configurable": {"thread_id": session_id}}
         state_snapshot = self.graph.get_state(config)
         language = "English"
-        if state_snapshot and state_snapshot.values:
+        
+        # Load Persisted User Preferences (Language Lock)
+        from storage import db
+        user_id = session_id.split('_')[0] 
+        user_pref = db.get_user_pref(user_id)
+        
+        if user_pref and user_pref.get('language'):
+            language = user_pref['language']
+            # We must inject this into the state if it's different or missing
+            # The next invoke will carry it, but we need it for translation right now.
+        elif state_snapshot and state_snapshot.values:
              language = state_snapshot.values.get("language", "English")
              
         # 2. Translate Input (User -> English)
@@ -364,6 +392,7 @@ class SmartWaiterAgent:
         inputs = {
             "messages": [HumanMessage(content=eng_input)],
             "session_id": session_id,
+            "language": language # Inject language explicitly to ensure state update
         }
         
         # 3. Invoke Agent (English)

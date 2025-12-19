@@ -35,42 +35,82 @@ agent = SmartWaiterAgent()
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /start command."""
-    # Show Session Choice Options
+    # Show Session Choice Options (Legacy) or Language Options?
+    # User flow: Start -> Language -> Session Mode? 
+    # Let's combine. 
+    
     keyboard = [
         [
-            InlineKeyboardButton("🆕 Start Fresh (Reset Memory)", callback_data="session_new"),
-            InlineKeyboardButton("💬 Continue Chat", callback_data="session_continue")
+            InlineKeyboardButton("English 🇺🇸", callback_data='lang_English'),
+            InlineKeyboardButton("Français 🇫🇷", callback_data='lang_French'),
+        ],
+        [
+            InlineKeyboardButton("Hausa 🇳🇬", callback_data='lang_Hausa'),
+            InlineKeyboardButton("Yoruba 🇳🇬", callback_data='lang_Yoruba'),
+            InlineKeyboardButton("Igbo 🇳🇬", callback_data='lang_Igbo'),
         ]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     await context.bot.send_message(
         chat_id=update.effective_chat.id, 
-        text="👋 Welcome to Smart Waiter!\nWould you like to start a new order or continue where you left off?",
+        text="👋 Welcome to Smart Waiter!\nPlease select your preferred language:",
         reply_markup=reply_markup
     )
 
 async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle interactions with Inline Buttons (Admin Interface)."""
+    """Handle interactions with Inline Buttons."""
     query = update.callback_query
     await query.answer() # Acknowledge interaction IMMEDIATELY
     
     print(f"DEBUG: Callback received: {query.data}")
     
     data = query.data
-    # Format: action_orderId (e.g., confirm_12345)
+    # Format: action_value (e.g., lang_English, confirm_12345)
     
     if not data:
-        print("DEBUG: No data in callback")
         return
-
+        
     parts = data.split("_")
     action = parts[0]
     
     if len(parts) < 2:
         return
         
-    order_id = parts[1]
+    # --- LANGUAGE SELECTION ---
+    if action == "lang":
+        selected_lang = parts[1]
+        user_id = str(update.effective_chat.id)
+        
+        # Lock in DB
+        from storage import db
+        db.set_user_pref(user_id, language=selected_lang)
+        
+        # Confirm to User
+        # "Language locked! I will now respond in [LANG]. Type /reset to change."
+        await query.edit_message_text(text=f"✅ Language set to **{selected_lang}**.\n(Type /reset to change anytime).")
+        
+        # Trigger Agent Greeting Immediately
+        session_id = user_id
+        version = db.get_session_version(session_id)
+        ver_session_id = f"{session_id}_{version}"
+        
+        # Send "typing"
+        await context.bot.send_chat_action(chat_id=user_id, action="typing")
+        
+        loop = asyncio.get_running_loop()
+        # Send a dummy "Hi" or just let the agent know we started? 
+        # If we send "Hi", the agent will skip onboarding (since lang is set) and greet.
+        result = await loop.run_in_executor(None, agent.run, "Hi", ver_session_id)
+        full_response, metadata = result
+        
+        if full_response:
+             await context.bot.send_message(chat_id=user_id, text=full_response)
+        return
+
+    # order_id check for admin actions
+    if len(parts) > 1:
+        order_id = parts[1]
     
     # --- ADMIN ACTIONS ---
     if action in ["approve", "deny"]:
@@ -131,7 +171,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
 
         await query.edit_message_text(text=f"❌ Order {order_id} Denied.")
 
-    # --- CLIENT SESSION ACTIONS ---
+    # --- CLIENT SESSION ACTIONS (Legacy/Optional now that we have Lang buttons) ---
     elif action == "session":
         mode = parts[1] # new or continue
         user_id = str(update.effective_chat.id)
