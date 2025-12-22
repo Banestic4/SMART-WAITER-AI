@@ -24,6 +24,7 @@ class AgentState(TypedDict):
     payment_amount: float | None
     payment_order_id: str | None
     table_number: str | None
+    context_data: dict | None # Injected Truth (Cart Total, e.t.c)
     intermediate_steps: List[dict] # Added for workflow compatibility logic
     
 class SmartWaiterAgent:
@@ -71,21 +72,23 @@ class SmartWaiterAgent:
         3. Do NOT provide external links, recipes, or advice about other businesses.
         """)
         
-        response = self._llm.invoke([system_prompt] + messages)
-        intent = response.content.strip().upper()
+        # 2. Add explicit language instruction
+        system_msg = f"""You are an Intent Classifier.
+        Current Language Context: {lang}.
         
-        if intent == "RESET-LANGUAGE":
-             from storage import db
-             # Extract user ID from session ID (which might be in state or pass context?)
-             # state['session_id'] is available in AgentState definition? Yes.
-             user_id = state['session_id'].split('_')[0]
-             db.clear_user_pref(user_id)
-             # Return updates to clear state logic
-             return {"intent": "RESET-LANGUAGE", "language": None, "interaction_mode": None}
+        Classify the user's input into one of these intents:
+        - MENU_INQUIRY: User asks about food, menu, or specific items.
+        - ADD_TO_ORDER: User wants to order something (e.g. "I want rice", "Add coke").
+        - REMOVE_FROM_ORDER: User removing item.
+        - VIEW_ORDER: User asks "what did I order?" or "bill".
+        - CHECKOUT: User wants to pay, finish, or checkout.
+        - GREETING: "Hi", "Hello".
+        - RESET-LANGUAGE: User explicitly wants to change language (e.g. "reset language", "change language", "reset").
         
-        valid_intents = ["MENU", "ORDER", "ORDER-CONFIRMATION", "PAYMENT", "PAYMENT-STATUS", "FEEDBACK", "GENERAL", "RESET-LANGUAGE"]
-        if intent not in valid_intents:
-            intent = "GENERAL"
+        Return ONLY the raw string of the intent.
+        
+        NOTE: Even if the user speaks {lang}, you must output the standard ENGLISH intent names above.
+        """
         
         # Override: If we are deep in payment flow, keep routing to payment
         pay_status = state.get("payment_status")
@@ -109,6 +112,11 @@ class SmartWaiterAgent:
         """Handle general conversation with strict restriction."""
         messages = state['messages']
         
+        # Context Injection
+        ctx = state.get('context_data', {}) or {}
+        lang = ctx.get('language') or state.get('language', "English")
+        cart_total = ctx.get('cart_total', 0)
+        
         # Fetch real menu data for accurate prices and items
         from tools import menu_ops
         menu = menu_ops.get_menu()
@@ -129,16 +137,22 @@ class SmartWaiterAgent:
             for item in items:
                 menu_context += f"- {item['name']}: ₦{item['price']:,.2f}\n"
 
-        lang = state.get("language", "English")
         system_msg = f"""You are Smart-Waiter (Evolution Restaurant).
-        Current Language: {lang}.
-        CRITICAL INSTRUCTION: You MUST respond in {lang} language ONLY.
+        
+        === STATE LOCK ===
+        CURRENT LANGUAGE: {lang.upper()}.
+        CURRENT CART TOTAL: N{cart_total:,.2f}.
+        ==================
+
+        CRITICAL INSTRUCTION:
+        You MUST reply ONLY in {lang}. Do not switch to English unless {lang} is English.
         
         Use the following menu information to answer:
         {menu_context}
         
         Short, polite, friendly.
         If asking for price, look it up in context or say you don't know but can check the menu.
+        If the user asks "How much is my bill?", you MUST use the CURRENT CART TOTAL (N{cart_total:,.2f}).
         
         CRITICAL: DO NOT accept *food orders* in this mode.
         - If the user says "Give me [food]" or "I want [food]", you MUST reply: "I can help you order that. Just say 'Order [Food Name]' to get started."
@@ -146,7 +160,6 @@ class SmartWaiterAgent:
         Do NOT say "You ordered X" or simulate a total price for an order you didn't create.
         """
         
-
         
         # Simple invocation
         # We generally don't need tools for general chat (menu display, greetings, small talk).
@@ -359,15 +372,18 @@ class SmartWaiterAgent:
             translated_response = trans.translate(full_response, src_lang="english", target_lang=language)
             yield translated_response
 
-    def run(self, input_text: str, session_id: str = "default") -> tuple[str, dict]:
-        """Run the agent graph with translation middleware."""
+    def run(self, input_text: str, session_id: str = "default", context_data: dict = None) -> tuple[str, dict]:
+        """Run the agent graph with translation middleware and INJECTED CONTEXT."""
         from tools import translator
         trans = translator.get_translator()
         
-        # 1. Inspect state to find language (default English)
+        # 1. Init Context
+        if context_data is None: context_data = {}
+        
+        # 2. Inspect state to find language (default English)
         config = {"configurable": {"thread_id": session_id}}
         state_snapshot = self.graph.get_state(config)
-        language = "English"
+        language = context_data.get("language", "English") # Priority to Injected Context
         
         # Load Persisted User Preferences (Language Lock)
         from storage import db
@@ -392,7 +408,8 @@ class SmartWaiterAgent:
         inputs = {
             "messages": [HumanMessage(content=eng_input)],
             "session_id": session_id,
-            "language": language # Inject language explicitly to ensure state update
+            "language": language, # Inject language explicitly to ensure state update
+            "context_data": context_data # INJECT TRUTH
         }
         
         # 3. Invoke Agent (English)

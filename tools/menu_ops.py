@@ -1,61 +1,50 @@
-from typing import List, Optional, Dict
-from pydantic import BaseModel
+from typing import List, Dict, Optional
 
-class MenuItem(BaseModel):
-    id: str
-    name: str
-    description: Optional[str] = None
-    price: float
-    category: str
-    available: bool = True
-    ingredients: List[str] = []
+# Structured Menu Data
+FULL_MENU = {
+    "Rice 🍚": {
+        "White Rice": 500, "Jollof Rice": 500, "Fried Rice": 500, "Rice with Beans": 800
+    },
+    "Swallow 🥣": {
+        "Semovita": 500, "Fufu / Akpu": 500, "Amala": 500, "Pounded Yam": 500
+    },
+    "Yam & Sides 🍠": {
+        "Golden Yam": 1000, "Egg": 300, "Liver Sauce": 300, "Potato Chips": 700, "Plantain Chips": 200
+    },
+    "Proteins 🍖": {
+        "Beef": 200, "Goat Meat": 400, "Chicken": 2000, "Fish (Small)": 300, "Fish (Big)": 500, "Mackerel": 1000
+    },
+    "Soup & Noodles 🍜": {
+        "Pepper Soup": 1000, "Spaghetti": 800, "Indomie": 600
+    },
+    "Snacks & Cakes 🍰": {
+        "Meat Pie": 700, "Fish Pie": 700, "Burger (Reg)": 1700, "Burger (Large)": 2500, "Doughnut": 300, "Egg Roll": 500
+    },
+    "Drinks & Tea ☕": {
+        "Zobo (S)": 400, "Zobo (B)": 800, "Water": 200, "Small Tea": 700, "Large Tea": 2000
+    }
+}
 
-import json
-import os
-
-# Path to the external menu file
-MENU_FILE = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data', 'menu.json')
-
-def load_menu_db() -> List[MenuItem]:
-    """Load menu items from the JSON file."""
-    if not os.path.exists(MENU_FILE):
-        return []
-    
-    with open(MENU_FILE, 'r') as f:
-        data = json.load(f)
-        
-    return [MenuItem(**item) for item in data]
-
-# Load DB on module import (simulated caching)
-MENU_DB = load_menu_db()
-
-def get_menu(category: str = None) -> List[Dict]:
+def get_menu() -> List[Dict]:
     """
-    Retrieve menu items.
-    
-    Args:
-        category: Optional category filter (e.g., 'Main', 'Side').
+    Legacy compatibility: Convert FULL_MENU to flat list expected by agent.
     """
-    # Reload to catch updates (optional, good for dev)
-    global MENU_DB
-    MENU_DB = load_menu_db()
-    
-    if category:
-        items = [item for item in MENU_DB if item.category.lower() == category.lower()]
-    else:
-        items = MENU_DB
-        
-    return [item.model_dump() for item in items]
+    flat_menu = []
+    for category, items in FULL_MENU.items():
+        # Remove Emoji for cleaner internal category name if needed, but keeping it is fine.
+        clean_cat = category.split(' ')[0] 
+        for name, price in items.items():
+            flat_menu.append({
+                "id": name.lower().replace(" ", "_"),
+                "name": name,
+                "price": price,
+                "category": category, # Use full display name for grouping
+                "available": True
+            })
+    return flat_menu
 
-def get_item_details(item_id: str) -> Optional[Dict]:
-    """
-    Get full details for a specific menu item.
-    """
-    # Ensure fresh data
-    global MENU_DB
-    MENU_DB = load_menu_db()
-    
-    for item in MENU_DB:
-        if item.id == item_id:
-            return item.model_dump()
-    return None
+def get_categories() -> List[str]:
+    return list(FULL_MENU.keys())
+
+def get_category_items(category: str) -> Dict[str, int]:
+    return FULL_MENU.get(category, {})

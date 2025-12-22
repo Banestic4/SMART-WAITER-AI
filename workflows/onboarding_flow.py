@@ -162,7 +162,14 @@ def create_onboarding_workflow(llm):
             if numbers:
                 num = int(numbers[0])
                 if 1 <= num <= 15:
-                    final_msg = f"Table {num} noted. Thank you! What can I get for you today? or Would you like to see our menu?" 
+                    success_responses = {
+                        "English": f"Table {num} noted. Thank you! What can I get for you today? or Would you like to see our menu?",
+                        "Hausa": f"An lura da tebur {num}. Na gode! Me zan kawo muku yau? Ko kuna so ku ga menu?",
+                        "Yoruba": f"A ti kọ tabili {num}. Ẹ ṣeun! Kí ni mo lè mú wá fún yín lónìí? Tabi ṣe ẹ fẹ wo akojọ ounjẹ wa?",
+                        "Igbo": f"Edebere tebụl {num}. Daalụ! Kedu ihe m ga-wetara gị taa? Ka ị chọrọ ịhụ menu anyị?",
+                        "French": f"Table {num} notée. Merci ! Que puis-je vous servir aujourd'hui ? Ou souhaitez-vous voir notre menu ?"
+                    }
+                    final_msg = success_responses.get(lang, success_responses["English"])
                     return {"table_number": str(num), "messages": [AIMessage(content=final_msg)]}
                 else:
                     # Invalid number

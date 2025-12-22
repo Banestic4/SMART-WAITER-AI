@@ -1,112 +1,57 @@
-from fastapi import FastAPI, HTTPException, Security, Depends
-from fastapi.security.api_key import APIKeyHeader
-from pydantic import BaseModel
-from agents.smart_waiter_agent import SmartWaiterAgent
-from config import Config
+import os
+import sys
+
+# Add the project root to sys.path so we can import modules
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from fastapi import FastAPI, Request
+from telegram import Update
+from telegram.ext import Application
+from telegram_bot import build_app
+import logging
+
+# Setup Logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 app = FastAPI()
 
-# Security Scheme
-api_key_header = APIKeyHeader(name="X-API-Key", auto_error=True)
+# Global Application instance
+ptb_application: Application = None
 
-def get_api_key(api_key_header: str = Security(api_key_header)):
-    if api_key_header == Config.APP_API_KEY:
-        return api_key_header
-    raise HTTPException(status_code=403, detail="Could not validate credentials")
+async def get_ptb_application() -> Application:
+    """
+    Lazy initialization of the PTB Application.
+    This ensures it's created only once per warm container.
+    """
+    global ptb_application
+    if ptb_application is None:
+        logger.info("Building PTB Application...")
+        ptb_application = build_app()
+        await ptb_application.initialize()
+    return ptb_application
 
-class ChatRequest(BaseModel):
-    message: str
-    session_id: str = "default"
-
-# Initialize Agent
-agent = SmartWaiterAgent()
+@app.post("/api/webhook")
+async def telegram_webhook(request: Request):
+    """
+    Main Webhook Handler.
+    Receives updates from Telegram and feeds them into the existing Bot Application.
+    """
+    try:
+        ptb_app = await get_ptb_application()
+        
+        # Parse JSON
+        data = await request.json()
+        update = Update.de_json(data, ptb_app.bot)
+        
+        # Process Update
+        await ptb_app.process_update(update)
+        
+        return {"status": "ok"}
+    except Exception as e:
+        logger.error(f"Error in webhook: {e}", exc_info=True)
+        return {"status": "error", "message": str(e)}
 
 @app.get("/")
-def read_root():
-    return {"message": "Smart Waiter API is running"}
-
-from fastapi.responses import StreamingResponse
-
-@app.post("/api/chat")
-async def chat_endpoint(request: ChatRequest, api_key: str = Depends(get_api_key)):
-    try:
-        # Stream the response
-        return StreamingResponse(
-            agent.astream_run(request.message, session_id=request.session_id),
-            media_type="text/plain"
-        )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-from fastapi import UploadFile, File
-from groq import Groq
-import os
-
-# Initialize Groq Client for Audio
-groq_client = Groq(api_key=Config.GROQ_API_KEY)
-
-@app.post("/api/voice")
-async def voice_endpoint(file: UploadFile = File(...), session_id: str = "default", api_key: str = Depends(get_api_key)):
-    try:
-        # Transcribe
-        # Groq API requires file-like object with a name
-        # We read the uploaded file into memory (fine for short voice clips)
-        content = await file.read()
-        
-        # Determine format based on extension or default to .m4a/.wav 
-        # (Groq supports flac, mp3, mp4, mpeg, mpga, m4a, ogg, wav, webm)
-        filename = file.filename or "audio.m4a"
-        
-        transcription = groq_client.audio.transcriptions.create(
-            file=(filename, content),
-            model="whisper-large-v3", # Multilingual model
-            response_format="text"
-        )
-        
-        # Process text with Agent
-        response_text = agent.run(transcription, session_id=session_id)
-        
-        return {
-            "transcription": transcription,
-            "response": response_text
-        }
-        
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Voice Error: {str(e)}")
-
-import edge_tts
-import base64
-
-@app.post("/api/voice")
-async def voice_endpoint(file: UploadFile = File(...), session_id: str = "default", api_key: str = Depends(get_api_key)):
-    try:
-        # Transcribe
-        content = await file.read()
-        filename = file.filename or "audio.m4a"
-        
-        transcription = groq_client.audio.transcriptions.create(
-            file=(filename, content),
-            model="whisper-large-v3",
-            response_format="text"
-        )
-        
-        # Process text with Agent
-        response_text = agent.run(transcription, session_id=session_id)
-        
-        # Generate Audio
-        communicate = edge_tts.Communicate(response_text, "en-US-AriaNeural")
-        audio_data = b""
-        async for chunk in communicate.stream():
-            if chunk["type"] == "audio":
-                audio_data += chunk["data"]
-                
-        audio_base64 = base64.b64encode(audio_data).decode('utf-8')
-        
-        return {
-            "transcription": transcription,
-            "response": response_text,
-            "audio": audio_base64
-        }
-        
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Voice Error: {str(e)}")
+async def health_check():
+    return {"status": "Smart Waiter Bot is Alive!"}

@@ -10,3 +10,7 @@ langchain-groq
 python-multipart
 edge-tts
 python-telegram-bot
+supabase
+#fastapi
+#uvicorn
+#python-multipart
